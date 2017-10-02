@@ -74,7 +74,7 @@ class LogMessageFatal : public LogMessage {
 
 #define _TF_LOG_QFATAL _TF_LOG_FATAL
 
-#define LOG(severity) _TF_LOG_##severity
+#define LOG(severity) _TF_LOG_##severity << pthread_self() << ": "
 
 #ifdef IS_MOBILE_PLATFORM
 // Turn VLOG off when under mobile devices for considerations of binary size.
@@ -88,7 +88,7 @@ class LogMessageFatal : public LogMessage {
 
 #define VLOG(lvl)                        \
   if (TF_PREDICT_FALSE(VLOG_IS_ON(lvl))) \
-  ::tensorflow::internal::LogMessage(__FILE__, __LINE__, tensorflow::INFO)
+  ::tensorflow::internal::LogMessage(__FILE__, __LINE__, tensorflow::INFO) << pthread_self() << ": "
 
 // CHECK dies with a fatal error if condition is not true.  It is *not*
 // controlled by NDEBUG, so the check will be executed regardless of
