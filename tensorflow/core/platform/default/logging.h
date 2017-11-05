@@ -74,7 +74,7 @@ class LogMessageFatal : public LogMessage {
 
 #define _TF_LOG_QFATAL _TF_LOG_FATAL
 
-#define LOG(severity) _TF_LOG_##severity << pthread_self() << ": "
+#define LOG(severity) _TF_LOG_##severity << "0x" << std::hex << pthread_self() << std::dec << ": "
 
 #ifdef IS_MOBILE_PLATFORM
 // Turn VLOG off when under mobile devices for considerations of binary size.
