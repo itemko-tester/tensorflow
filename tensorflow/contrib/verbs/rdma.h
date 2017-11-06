@@ -169,8 +169,8 @@ class RdmaChannel {
   void* PopPendingRequest(int request_num) {
     mutex_lock l(pending_requests_mu_);
     auto it = pending_requests_.find(request_num);
-    pending_requests_.erase(it);
     CHECK(it != pending_requests_.end());
+    pending_requests_.erase(it);
     return it->second;
   }
   uint32_t LookupBufferIndex(const string& buffer_name);

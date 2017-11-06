@@ -37,7 +37,7 @@ void RdmaMemoryMgr::InsertMemoryRegion(void* addr, size_t length) {
   if (length == 0) return;
   ibv_mr* mr = ibv_reg_mr(pd_, addr, length,
                      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-  LOG(INFO) << "INSERT MEMORY REGION 0x" << std::hex << mr->rkey << ". ADDRESS: 0x" << addr << ". SIZE: 0x" << length;
+//  LOG(INFO) << "INSERT MEMORY REGION 0x" << std::hex << mr->rkey << ". ADDRESS: 0x" << addr << ". SIZE: 0x" << length;
   if (mr != nullptr) {
     mutex_lock l(alloc_mu_);
     auto iter = std::upper_bound(mrs_.begin(), mrs_.end(), addr, &Comparator);

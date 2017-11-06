@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifdef TENSORFLOW_USE_VERBS
+//#ifdef TENSORFLOW_USE_VERBS
 
 #include "tensorflow/contrib/verbs/rdma_mgr.h"
 #include "tensorflow/contrib/verbs/rdma_memory_mgr.h"
@@ -265,4 +265,4 @@ void RdmaMgr::InitAllocators() {
 
 }  // end namespace tensorflow
 
-#endif
+//#endif
