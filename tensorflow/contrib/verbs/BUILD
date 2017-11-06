@@ -104,6 +104,21 @@ cc_library(
     deps = [
         ":rdma_mgr",
         ":verbs_util",
+        ":rdma_memory_mgr",
+        "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:gpu_runtime",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/distributed_runtime:base_rendezvous_mgr",
+        "//tensorflow/core/distributed_runtime:worker_env",
+    ],
+)
+
+cc_library(
+    name = "rdma_memory_mgr",
+    srcs = ["rdma_memory_mgr.cc"],
+    hdrs = ["rdma_memory_mgr.h"],
+    deps = [
+        ":verbs_util",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:gpu_runtime",
         "//tensorflow/core:lib",
@@ -119,6 +134,7 @@ cc_library(
     deps = [
         ":grpc_verbs_client",
         ":rdma",
+        ":rdma_memory_mgr",
         ":verbs_service_proto_cc",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:lib",
@@ -140,6 +156,7 @@ cc_library(
     }),
     deps = [
         ":verbs_util",
+        ":rdma_memory_mgr",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
         "//tensorflow/core:framework_internal",
@@ -160,6 +177,7 @@ cc_library(
     deps = [
         ":grpc_verbs_service",
         ":rdma_mgr",
+        ":rdma_memory_mgr",
         ":rdma_rendezvous_mgr",
         "//tensorflow/core:lib",
         "//tensorflow/core/distributed_runtime:server_lib",

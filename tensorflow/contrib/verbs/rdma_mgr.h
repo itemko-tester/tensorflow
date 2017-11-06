@@ -34,6 +34,7 @@ class RdmaMgr {
   ~RdmaMgr();
   RdmaChannel* FindChannel(const string& key);
   void SetupChannels();
+  void InitAllocators();
   const string& local_worker() { return local_worker_; }
 
  private:

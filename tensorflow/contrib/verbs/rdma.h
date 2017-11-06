@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
 #define THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
 
-#ifdef TENSORFLOW_USE_VERBS
+//#ifdef TENSORFLOW_USE_VERBS
 
 #include <infiniband/verbs.h>
 #include <cstring>  // for memset
@@ -89,6 +89,12 @@ enum RdmaMessageType {
   RDMA_MESSAGE_TENSOR_REQUEST,
   RDMA_MESSAGE_TENSOR_WRITE
 };
+enum RdmaMessageImm {
+  RDMA_MESSAGE_IMM_ACK = 0x80000000,
+  RDMA_MESSAGE_IMM_TENSOR_REQUEST = 0x80000001,
+};
+
+class RdmaMgr;
 class RdmaBuffer;
 // Class that represents the Rdma Adapter.
 // Responsible for creation of the completion queue, and handling
@@ -155,6 +161,18 @@ class RdmaChannel {
   RdmaBuffer* FindBuffer(const string& name);
   RdmaBuffer* FindOrCreateBuffer(const string& name,
                                  BufferType buffer_type = TENSOR);
+  int PutPendingRequest(void* dst_rdma_addr) {
+    mutex_lock l(pending_requests_mu_);
+    pending_requests_[pending_request_serial] = dst_rdma_addr;
+    return pending_request_serial++;
+  }
+  void* PopPendingRequest(int request_num) {
+    mutex_lock l(pending_requests_mu_);
+    auto it = pending_requests_.find(request_num);
+    pending_requests_.erase(it);
+    CHECK(it != pending_requests_.end());
+    return it->second;
+  }
   uint32_t LookupBufferIndex(const string& buffer_name);
   void SetRemoteAddress(const RdmaAddress& ra, bool override);
   void InsertRecvCallback(const string& key, std::function<void()> recv_done);
@@ -187,6 +205,9 @@ class RdmaChannel {
   RdmaBuffer* tx_ack_buffer_;
   RdmaBuffer* rx_ack_buffer_;
   std::vector<RdmaBuffer*> message_buffers_;
+  mutex pending_requests_mu_;
+  int pending_request_serial = 0;
+  std::map<int, void*> pending_requests_ GUARDED_BY(pending_requests_mu_);
 };
 
 // Class that represents a buffer for Rdma writes and reads.
@@ -256,22 +277,25 @@ class RdmaTensorBuffer : public RdmaBuffer {
  public:
   explicit RdmaTensorBuffer(RdmaChannel* channel, string name);
   virtual ~RdmaTensorBuffer() override;
-  void SendNextItem() override;
-  void PostCopyOperations(bool can_memcpy, size_t buffer_size,
+
+  static void PostCopyOperations(const RdmaChannel* channel,
+                          uint64_t remote_addr, uint32_t rkey,
+                          bool can_memcpy, size_t buffer_size,
                           size_t tensor_bytes, const string& key,
                           const Tensor& in, int64 step_id, bool is_dead,
+                          int pending_request_index,
                           const string& key_with_step_id, const Tensor* copy,
                           const TensorProto* proto, const StringPiece* copy_buf,
                           const Rendezvous::Args& send_args,
                           const Rendezvous::Args& recv_args);
 
-  void ReSendNextItem();
+  static Rendezvous::DoneCallback getRecvTensorCallback(
+                          const RdmaChannel* channel,
+                          uint64_t remote_addr, uint32_t rkey,
+                          const string& key_with_step_id, const string& key, int64 step_id,
+                          int pending_request_index, const Rendezvous::ParsedKey& parsed);
 
  private:
-  Rendezvous::DoneCallback getRecvTensorCallback(
-      const string& key_with_step_id, const string& key, int64 step_id,
-      const Rendezvous::ParsedKey& parsed);
-
   struct ReItem {
     Rendezvous::Args send_args;
     Rendezvous::Args recv_args;
@@ -346,7 +370,9 @@ struct RdmaMessage {
   static const size_t kTensorBytesStartIndex =
       kTensorShapeStartIndex + sizeof(TensorShape);
   static const size_t kTensorBufferStartIndex =
-      kTensorBytesStartIndex + sizeof(tensor_bytes_);
+      //kTensorBytesStartIndex + sizeof(tensor_bytes_);
+      ((((kTensorBytesStartIndex + sizeof(tensor_bytes_)) - 1) >> 5) + 1) << 5;
+
   static const size_t kMessageTotalBytes = kTensorBufferStartIndex;
   static const size_t kRdmaMessageBufferSize = kMessageTotalBytes;
   static const size_t kRdmaAckBufferSize = kMessageTotalBytes;
@@ -356,5 +382,5 @@ struct RdmaMessage {
 
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_USE_VERBS
+//#endif  // TENSORFLOW_USE_VERBS
 #endif  // THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
