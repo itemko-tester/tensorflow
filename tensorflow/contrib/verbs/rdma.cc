@@ -492,8 +492,10 @@ void RdmaAdapter::Process_CQ() {
 
           RdmaMessage rm;
           RdmaMessage::ParseMessage(rm, rc->rx_message_buffer_->buffer_);
-          int pending_request_index = rm.type_;
-          LOG(INFO) << "ELAD: RECEIVED REQUEST #" << pending_request_index << " FOR TENSOR " << rm.step_id_ << ": " << rm.name_;
+          int pending_request_index = rm.tensor_bytes_;
+//          LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
+//                    << ": RECEIVED REQUEST #" << pending_request_index << ": " << rm.name_;
+
           // received a request-for-tensor message
           // send ack to release remote tx message buffer
           RdmaBuffer* ab = rc->tx_ack_buffer_;
@@ -514,22 +516,16 @@ void RdmaAdapter::Process_CQ() {
               RdmaTensorBuffer::getRecvTensorCallback(rc, rm.remote_addr_, rm.rkey_, key_with_step_id, key, step_id, pending_request_index, parsed);
           worker_env_->rendezvous_mgr->RecvLocalAsync(step_id, parsed, cb);
 
-//          worker_env_->compute_pool->Schedule(
-//              [tb, key_with_step_id, pending_request_index]() {
-//                  tb->Send(key_with_step_id, pending_request_index);
-//              });
-
         } else {
           void* rdma_dst_addr = rc->PopPendingRequest(imm_data);
-          LOG(INFO) << "ELAD: RECEIVED RESPONSE FOR REQUEST #" << imm_data << " ON " << rdma_dst_addr;
-
-//          RdmaMessage rm;
-//          RdmaMessage::ParseMessage(rm, rdma_dst_addr);
-//          worker_env_->compute_pool->Schedule([rm, rc]() {
-//            string key_with_step_id =
-//                VerbsUtil::AppendStepidToKey(rm.name_, rm.step_id_);
-//            rc->RunRecvCallback(key_with_step_id);
-//          });
+//          LOG(INFO) << "ELAD: RECEIVED RESPONSE FOR REQUEST #" << imm_data << " ON " << rdma_dst_addr;
+          RdmaMessage rm;
+          RdmaMessage::ParseMessage(rm, rdma_dst_addr);
+          worker_env_->compute_pool->Schedule([rm, rc]() {
+            string key_with_step_id =
+                VerbsUtil::AppendStepidToKey(rm.name_, rm.step_id_);
+            rc->RunRecvCallback(key_with_step_id);
+          });
         }
       } else if (wc_[i].opcode == IBV_WC_RDMA_WRITE) {
         WriteContextDesc* desc = reinterpret_cast<WriteContextDesc*>(wc_[i].wr_id);
@@ -547,8 +543,8 @@ void RdmaAdapter::Process_CQ() {
             worker_env_->compute_pool->Schedule([rb]() { rb->SendNextItem(); });
           }
         } else {
-          void* src_buffer = (void*)desc->write_context_;
-          delete src_buffer;
+//          void* src_buffer = (void*)desc->write_context_;
+//          delete src_buffer;
         }
         delete desc;
       }
@@ -1113,7 +1109,8 @@ void RdmaTensorBuffer::PostCopyOperations(
   uint32_t imm_data = pending_request_index;
   rm.type_ = RDMA_MESSAGE_TENSOR_WRITE;
   string message = RdmaMessage::CreateMessage(rm);
-  void* src_buffer = ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, buffer_size);
+//  LOG(INFO) << "ELAD: BUFFER SIZE = " << buffer_size << " TENSOR BYTES = " << tensor_bytes;
+  void* src_buffer = ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, tensor_bytes + RdmaMessage::kTensorBufferStartIndex);
   memcpy(src_buffer, message.data(), message.size());
   if (!is_dead) {
     // copy the tensor buffer content
@@ -1153,9 +1150,12 @@ void RdmaTensorBuffer::PostCopyOperations(
   wr.wr.rdma.remote_addr = remote_addr;
   wr.wr.rdma.rkey = rkey;
 
-//  struct ibv_send_wr* bad_wr;
-//  CHECK(!ibv_post_send(channel->qp_, &wr, &bad_wr)) << "Failed to post send";
-//  LOG(INFO) << "DONE.";
+//  LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
+//            << ": SENDING RESPONSE #" << pending_request_index << ": " << rm.name_ << ": " // << in.DebugString()
+//            << " (SIZE: 0x" << std::hex << in.TotalBytes() << ")";
+
+  struct ibv_send_wr* bad_wr;
+  CHECK(!ibv_post_send(channel->qp_, &wr, &bad_wr)) << "Failed to post send";
 }
 
 // Create a RdmaMessage according to the pre-defined format
@@ -1201,8 +1201,8 @@ string RdmaMessage::CreateMessage(const RdmaMessage& rm) {
          sizeof(rm.data_type_));
   memcpy(&message[kTensorShapeStartIndex], &rm.tensor_shape_,
          sizeof(rm.tensor_shape_));
-//  memcpy(&message[kTensorBytesStartIndex], &rm.tensor_bytes_,
-//         sizeof(rm.tensor_bytes_));
+  memcpy(&message[kTensorBytesStartIndex], &rm.tensor_bytes_,
+         sizeof(rm.tensor_bytes_));
   return string(message, kMessageTotalBytes);
 }
 
@@ -1229,12 +1229,12 @@ void RdmaMessage::ParseMessage(RdmaMessage& rm, void* buffer) {
   // step_id
   memcpy(&rm.step_id_, &message[kStepIdStartIndex], sizeof(rm.step_id_));
   memcpy(&rm.is_dead_, &message[kIsDeadStartIndex], sizeof(rm.is_dead_));
-    memcpy(&rm.data_type_, &message[kDataTypeStartIndex],
-           sizeof(rm.data_type_));
-    memcpy(&rm.tensor_shape_, &message[kTensorShapeStartIndex],
-           sizeof(rm.tensor_shape_));
-//    memcpy(&rm.tensor_bytes_, &message[kTensorBytesStartIndex],
-//           sizeof(rm.tensor_bytes_));
+  memcpy(&rm.data_type_, &message[kDataTypeStartIndex],
+         sizeof(rm.data_type_));
+  memcpy(&rm.tensor_shape_, &message[kTensorShapeStartIndex],
+         sizeof(rm.tensor_shape_));
+  memcpy(&rm.tensor_bytes_, &message[kTensorBytesStartIndex],
+         sizeof(rm.tensor_bytes_));
 }
 
 }  // end namespace tensorflow

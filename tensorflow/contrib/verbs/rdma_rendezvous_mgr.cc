@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifdef TENSORFLOW_USE_VERBS
+//#ifdef TENSORFLOW_USE_VERBS
 
 #include "tensorflow/contrib/verbs/rdma_rendezvous_mgr.h"
 #include "tensorflow/contrib/verbs/rdma_memory_mgr.h"
@@ -183,11 +183,15 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
                << ".\n SIZE: "   << tensor_size + RdmaMessage::kTensorBufferStartIndex;
   }
 
+
+  int pending_request_index = rc->PutPendingRequest(rdma_addr);
+
+
   // insert callback
   // ELAD: CALLBACK TO BE DONE WHEN RECEIVING RDMA_MESSAGE_TENSOR_WRITE.
   //        Create the result tensor from the written data, and invoke the DoneCallback.
 
-  rc->InsertRecvCallback(key_with_step_id, [this, key, key_with_step_id, rc,
+  rc->InsertRecvCallback(key_with_step_id, [this, key, key_with_step_id, rc, pending_request_index,
                                             rdma_addr, result_tensor_allocator, rdma_proxy_allocator,
                                             src_dev, dst_dev, recv_args, parsed, done]() {
     Status s;
@@ -201,19 +205,21 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
         rm.data_type_,
         rm.tensor_shape_);
 
-    LOG(INFO) << "ELAD: RECEIVED TENSOR RESPONSE " << result_tensor_allocator->Name();
-    return;
+//    LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
+//              << ": RECEIVED RESPONSE #" << pending_request_index << ": " << rm.name_ << ": " //<< result_tensor->DebugString()
+//              << "(SIZE: 0x" << std::hex << result_tensor->TotalBytes() << ")";
+
 
     Tensor val;
     if (!rm.is_dead_) {
 
-      bool can_memcpy = DataTypeCanUseMemcpy(rm.data_type_);
+      bool can_memcpy = true;//DataTypeCanUseMemcpy(rm.data_type_);
       if (can_memcpy) {
         if (rdma_proxy_allocator != nullptr)
           /*dst_dev->tensorflow_gpu_device_info() &&
             (!recv_args.alloc_attrs.on_host()))*/ {
 
-          LOG(INFO) << "ELAD PROXYING " << std::hex << rdma_proxy_allocator->Name() << " ==> " << result_tensor_allocator->Name();
+//          LOG(INFO) << "ELAD PROXYING " << std::hex << rdma_proxy_allocator->Name() << " ==> " << result_tensor_allocator->Name();
           CHECK(recv_args.device_context)
             << "send dev name: " << src_dev->name()
             << " gpu_info: " << src_dev->tensorflow_gpu_device_info();
@@ -244,17 +250,17 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
     RecvPostCopyOps(key, key_with_step_id, recv_args, done, rm, rc, val, s);
   });
   // append key to message queue
-  int pending_request_index = rc->PutPendingRequest(rdma_addr);
-
   RdmaMessage rm;
-  rm.type_ = (RdmaMessageType)pending_request_index;
+  rm.tensor_bytes_ = (RdmaMessageType)pending_request_index;
   rm.name_size_ = key.size();
   rm.name_ = key;
   rm.step_id_ = step_id_;
   rm.remote_addr_ = (uint64_t)rdma_addr;
   rm.rkey_ = mr->rkey;
 
-  LOG(INFO) << "ELAD: SENDING REQUEST #" << pending_request_index << ". DST_ADDR: " << rdma_addr << " RKEY: 0x" << std::hex << rm.rkey_ << ". TENSOR-SIZE: 0x" << tensor_size << ". TENSOR: " << rm.name_;
+//  LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
+//            << ": SENDING REQUEST #" << pending_request_index << ": " << rm.name_
+//            << " ON " << result_tensor_allocator->Name() << " (RKEY: 0x" << std::hex << rm.rkey_ << ")";
 
   string message = RdmaMessage::CreateMessage(rm);
   rc->tx_message_buffer_->EnqueueItem(message);
@@ -288,4 +294,4 @@ BaseRemoteRendezvous* RdmaRendezvousMgr::Create(int64 step_id,
 
 }  // end namespace tensorflow
 
-#endif
+//#endif
