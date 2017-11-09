@@ -82,12 +82,8 @@ enum BufferType {
   TENSOR
 };
 enum RdmaMessageType {
-  RDMA_MESSAGE_ACK,
-  RDMA_MESSAGE_BUFFER_IDLE,
-  RDMA_MESSAGE_BUFFER_REQUEST,
-  RDMA_MESSAGE_BUFFER_RESPONSE,
   RDMA_MESSAGE_TENSOR_REQUEST,
-  RDMA_MESSAGE_TENSOR_WRITE
+  RDMA_MESSAGE_TENSOR_META_DATA_RESPONSE
 };
 enum RdmaMessageImm {
   RDMA_MESSAGE_IMM_ACK = 0x80000000,
@@ -175,9 +171,9 @@ class RdmaChannel {
   }
   uint32_t LookupBufferIndex(const string& buffer_name);
   void SetRemoteAddress(const RdmaAddress& ra, bool override);
-  void InsertRecvCallback(const string& key, std::function<void()> recv_done);
-  void RemoveRecvCallback(const string& key);
-  void RunRecvCallback(const string& key);
+  void InsertRecvCallback(int request_index, std::function<void()> recv_done);
+  void RemoveRecvCallback(int request_index);
+  void RunRecvCallback(int request_index);
   static const int kNumMessageBuffers = 4;
 
  protected:
@@ -191,7 +187,7 @@ class RdmaChannel {
   RdmaAddress remote_ GUARDED_BY(bt_mu_);
   bool remote_set_ GUARDED_BY(bt_mu_) = false;
   mutex ct_mu_;
-  typedef std::unordered_map<string, std::function<void()> > CallbackTable;
+  typedef std::unordered_map<int, std::function<void()> > CallbackTable;
   CallbackTable callback_table_ GUARDED_BY(ct_mu_);
   mutex bt_mu_;
   typedef std::unordered_map<unsigned int, RdmaBuffer*> BufferTable;
@@ -284,8 +280,8 @@ class RdmaTensorBuffer : public RdmaBuffer {
                           size_t tensor_bytes, const string& key,
                           const Tensor& in, int64 step_id, bool is_dead,
                           int pending_request_index,
-                          const string& key_with_step_id, const Tensor* copy,
-                          const TensorProto* proto, const StringPiece* copy_buf,
+                          const string& key_with_step_id,
+                          const TensorProto* proto,
                           const Rendezvous::Args& send_args,
                           const Rendezvous::Args& recv_args);
 
