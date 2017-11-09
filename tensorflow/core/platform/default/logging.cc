@@ -75,6 +75,8 @@ void LogMessage::GenerateLogMessage() {
 
 #else
 
+#include <string.h>
+
 void LogMessage::GenerateLogMessage() {
   static EnvTime* env_time = tensorflow::EnvTime::Default();
   uint64 now_micros = env_time->NowMicros();
@@ -85,9 +87,22 @@ void LogMessage::GenerateLogMessage() {
   strftime(time_buffer, time_buffer_size, "%Y-%m-%d %H:%M:%S",
 	   localtime(&now_seconds));
 
+  const char* dots;
+  int file_skip = strlen(fname_) - 38;
+  if (file_skip <= 0) {
+    dots = "";
+    file_skip = 0;
+  } else {
+    dots = "...";
+    file_skip += 3;
+  }
+
   // TODO(jeff,sanjay): Replace this with something that logs through the env.
-  fprintf(stderr, "%s.%06d: %c %s:%d] %s\n", time_buffer, micros_remainder,
-	  "IWEF"[severity_], fname_, line_, str().c_str());
+  char prefix[256];
+  sprintf(prefix, "%s.%06d: %c 0x%llx %s%s:%-4d]", time_buffer, micros_remainder,
+      "IWEF"[severity_], pthread_self(), dots, fname_ + file_skip, line_);
+
+  fprintf(stderr, "%-89s %s\n", prefix, str().c_str());
 }
 #endif
 
