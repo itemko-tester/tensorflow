@@ -27,7 +27,14 @@ void MRDeleter(ibv_mr* mr);
 
 using MemoryRegionPtr = std::unique_ptr<ibv_mr, decltype(&MRDeleter)>;
 
-using TensorAllocationMetaData = std::pair<DataType, TensorShape>;
+class TensorMetaData {
+  public:
+    TensorMetaData(DataType data_type, TensorShape tensor_shape):
+      data_type_(data_type), tensor_shape_(tensor_shape) { }
+
+    DataType data_type_;
+    TensorShape tensor_shape_;
+};
 
 class RdmaMemoryMgr {
 
@@ -39,18 +46,21 @@ class RdmaMemoryMgr {
     void InsertMemoryRegion(void* addr, size_t length);
     void EvictMemoryRegion(void* addr, size_t length);
 
-    const int GetTensorSize(std::string tensor_name) {
+    const TensorMetaData* GetTensorMetaData(const std::string& tensor_name) {
       mutex_lock l(tensor_sizes_mu_);
-      auto it = tensor_sizes_.find(tensor_name);
-      if (it == tensor_sizes_.end()) {
-        return -1;
+      auto it = tensors_meta_data_.find(tensor_name);
+      if (it == tensors_meta_data_.end()) {
+        return nullptr;
       }
-      return it->second;
+      return &it->second;
     }
 
-    void SetTensorSize(std::string tensor_name, int size) {
+    // Return true if inserted new
+    bool SetTensorMetaData(const std::string& tensor_name, DataType dtype, const TensorShape& shape) {
       mutex_lock l(tensor_sizes_mu_);
-      tensor_sizes_[tensor_name] = size;
+      TensorMetaData meta_data(dtype, shape);
+      auto res = tensors_meta_data_.insert(std::make_pair(tensor_name, meta_data));
+      return res.second;
     }
 
     struct ibv_pd *pd_;
@@ -64,7 +74,7 @@ class RdmaMemoryMgr {
 
  private:
   mutex tensor_sizes_mu_;
-  std::unordered_map<std::string, int> tensor_sizes_;
+  std::unordered_map<std::string, TensorMetaData> tensors_meta_data_;
 
   // Managed memory regions
   mutex alloc_mu_;
