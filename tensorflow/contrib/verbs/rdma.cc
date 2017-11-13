@@ -1164,11 +1164,10 @@ void RdmaTensorBuffer::PostCopyOperations(
   uint32_t lkey;
   if (src_buffer == nullptr)
   {
-//    LOG(INFO) << "ELAD TENSOR WITH NO BUFFER";
-
     src_addr = nullptr; //ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, 1);
     write_size = 0;
     lkey = 0;
+//    LOG(INFO) << "PERFORMING EMPTY TENSOR WRITE.";
   }
   else
   {
@@ -1178,9 +1177,9 @@ void RdmaTensorBuffer::PostCopyOperations(
     ibv_mr* mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(src_addr, tensor_bytes);
     CHECK(mr != nullptr) << " NO MEMORY REGION FOUND FOR " << src_addr << ": " << key;
     lkey = mr->lkey;
+//    LOG(INFO) << "WRITING TENSOR FROM " << std::hex << src_addr << " (0x" << lkey << ") TO 0x" << std::hex << remote_addr << " (0x" << rkey << "). SIZE: 0x" << write_size;
   }
 
-  //  LOG(INFO) << "WRITING TENSOR FROM " << src_addr << " TO " << std::hex << rkey << ": 0x" << remote_addr;
 
   struct ibv_sge list;
   list.addr = (uint64_t)src_addr;
@@ -1199,8 +1198,9 @@ void RdmaTensorBuffer::PostCopyOperations(
   wr.wr.rdma.rkey = rkey;
 
 //  LOG(INFO) << "STEP 0x" << std::hex << step_id << std::dec
-//            << ": SENDING RESPONSE #" << pending_request_index << ": " << key << ": " // << in.DebugString()
-//            << " (SIZE: 0x" << std::hex << in.TotalBytes() << ")";
+//            << ": SENDING RESPONSE #" << pending_request_index
+//            << " FROM " << std::hex << src_addr << " (0x" << lkey << ") TO 0x" << remote_addr << " (0x" << rkey << "): "
+//            << key << " (SIZE: 0x" << std::hex << write_size << ")";
 
   struct ibv_send_wr* bad_wr;
   CHECK(!ibv_post_send(channel->qp_, &wr, &bad_wr)) << "Failed to post send";
