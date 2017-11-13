@@ -67,12 +67,23 @@ class DelegatedAllocator: public Allocator {
   void* AllocateRaw(size_t alignment, size_t num_bytes) override {
     if (value_ == nullptr) {
       value_ = sub_allocator_->AllocateRaw(alignment, num_bytes);
+//      debug_mu_.lock();
+//      allocated++;
+//      debug_mu_.unlock();
     }
     return value_;
   }
   void DeallocateRaw(void* ptr) override {
-//    LOG(INFO) << "ELAD: DEALLOCATING " << ptr << ". BASE: " << base_;
-    sub_allocator_->DeallocateRaw(value_);
+//    LOG(INFO) << "ELAD: DEALLOCATING " << value_;
+//    debug_mu_.lock();
+//    deallocated++;
+//    debug_mu_.unlock();
+//    if (deallocated % 1000 == 0) {
+//      LOG(INFO) << "ALLOCATED: " << allocated << ". DEALLOCATED: " << deallocated;
+//    }
+
+    CHECK(ptr == value_);
+    sub_allocator_->DeallocateRaw(ptr);
     //delete this;
   }
 
@@ -80,9 +91,16 @@ class DelegatedAllocator: public Allocator {
     return value_;
   }
  private:
+//  static mutex debug_mu_;
+//  static int allocated;
+//  static int deallocated;
   Allocator* sub_allocator_;
   void* value_;
 };
+
+//mutex DelegatedAllocator::debug_mu_;
+//int DelegatedAllocator::allocated = 0;
+//int DelegatedAllocator::deallocated = 0;
 
 
 #define MAX_TENSOR_SIZE         ((10 * 1024 * 1024))
