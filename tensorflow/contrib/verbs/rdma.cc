@@ -452,10 +452,25 @@ void RdmaAdapter::Process_CQ() {
         ibv_poll_cq(cq_, MAX_CONCURRENT_WRITES * 2, static_cast<ibv_wc*>(wc_));
     CHECK_GE(ne, 0);
     for (int i = 0; i < ne; ++i) {
-      CHECK(wc_[i].status == IBV_WC_SUCCESS)
-          << "Failed status \n" << ibv_wc_status_str(wc_[i].status) << " "
-          << wc_[i].status << " " << static_cast<int>(wc_[i].wr_id) << " "
-          << wc_[i].vendor_err;
+      if (wc_[i].status != IBV_WC_SUCCESS) {
+          WriteContextDesc* desc = reinterpret_cast<WriteContextDesc*>(wc_[i].wr_id);
+          int imm_data = desc->write_type_;
+          LOG(INFO) << "ERROR: " << ibv_wc_status_str(wc_[i].status) << ": "
+                     << "OPCODE: " << wc_[i].opcode << " "
+                     << "WR-ID: " << std::hex << "0x" << wc_[i].wr_id << " "
+                     << "IMM: 0x" << std::hex << imm_data;
+
+          if ((imm_data == RDMA_MESSAGE_IMM_TENSOR_REQUEST) ||
+              (imm_data == RDMA_MESSAGE_IMM_ACK)) {
+
+            RdmaBuffer* rb = reinterpret_cast<RdmaBuffer*>(desc->write_context_);
+            LOG(INFO) << "MESSAGE FAILED. SRC-BUFFER: " << rb->buffer_;
+          } else {
+            TensorBuffer* src_buffer = reinterpret_cast<TensorBuffer*>(desc->write_context_);
+            LOG(INFO) << "TENSOR WRITE FAILED. SRC-BUFFER: " << ((src_buffer == nullptr) ? (void*)0 : src_buffer->data());
+          }
+          LOG(FATAL) << "Exiting.";
+      }
 
 //      LOG(INFO) << "EVENT " << ibv_wc_status_str(wc_[i].status) << " "
 //      << "OPCODE: " << wc_[i].opcode << " "
