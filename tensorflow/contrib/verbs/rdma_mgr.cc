@@ -232,15 +232,16 @@ void RdmaMgr::InitAllocators() {
   };
 
   using namespace std::placeholders;
-  VisitableAllocator::Visitor alloc_visitor =
-      std::bind(&RdmaMemoryMgr::InsertMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
-  VisitableAllocator::Visitor free_visitor =
-      std::bind(&RdmaMemoryMgr::EvictMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
 
   std::set<Allocator*> instrumented_;
 
   // Host memory allocators
   for (Allocator* allocator : allocators) {
+    VisitableAllocator::Visitor alloc_visitor =
+        std::bind(&RdmaMemoryMgr::InsertMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2, allocator->Name());
+    VisitableAllocator::Visitor free_visitor =
+        std::bind(&RdmaMemoryMgr::EvictMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
+
     auto* visitable_allocator = dynamic_cast<VisitableAllocator*>(allocator);
     CHECK(visitable_allocator) << "is not visitable for instrumentation"
                                << allocator->Name();
@@ -253,11 +254,15 @@ void RdmaMgr::InitAllocators() {
     }
   }
 
-  VisitableAllocator::Visitor cuda_alloc_visitor =
-      std::bind(&RdmaMemoryMgr::InsertMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
   if (IsGDRAvailable()) {
     // Note we don't free allocated GPU memory so there is no free visitor
     int32_t bus_id = TryToReadNumaNode(rdma_adapter_->context_->device) + 1;
+
+    char buf[8];
+    sprintf(buf, "gpu-%u", bus_id - 1);
+    VisitableAllocator::Visitor cuda_alloc_visitor =
+        std::bind(&RdmaMemoryMgr::InsertMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2, std::string(buf));
+
     ProcessState::singleton()->AddGPUAllocVisitor(bus_id, cuda_alloc_visitor);
     LOG(INFO) << "Instrumenting GPU allocator with bus_id " << bus_id;
   }
