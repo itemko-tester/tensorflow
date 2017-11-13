@@ -43,7 +43,7 @@ class RdmaMemoryMgr {
 
     // Memory regions
     ibv_mr* FindMemoryRegion(void* addr, size_t length);
-    void InsertMemoryRegion(void* addr, size_t length);
+    void InsertMemoryRegion(void* addr, size_t length, const std::string& allocator_name);
     void EvictMemoryRegion(void* addr, size_t length);
 
     const TensorMetaData* GetTensorMetaData(const std::string& tensor_name) {
