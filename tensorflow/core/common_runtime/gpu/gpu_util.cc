@@ -346,6 +346,26 @@ void GPUUtil::CopyCPUTensorToGPU(const Tensor* cpu_tensor,
       });
 }
 
+/*  static */
+void GPUUtil::StreamOperation(const DeviceContext* device_context,
+                              Device* gpu_device, StatusCallback op) {
+
+  const GPUDeviceContext* gpu_device_context = static_cast<const GPUDeviceContext*>(device_context);
+  auto gs = gpu_device_context->stream();
+  auto send_device_to_host_stream = gpu_device_context->device_to_host_stream();
+
+  // TODO: Can try streaming directly on gs.
+
+  send_device_to_host_stream->ThenWaitFor(gs);
+
+  gpu_device->tensorflow_gpu_device_info()->event_mgr->ThenExecute(
+      send_device_to_host_stream,
+      [send_device_to_host_stream, op]() {
+        CHECK(send_device_to_host_stream->ok()) << "SOME KIND OF ERROR.";
+        op(Status::OK());
+      });
+}
+
 Status GPUUtil::Sync(Device* gpu_device) {
   VLOG(1) << "GPUUtil::Sync";
   auto* dev_info = gpu_device->tensorflow_gpu_device_info();

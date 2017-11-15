@@ -51,6 +51,9 @@ class GPUUtil {
                                  const Tensor* gpu_tensor, Tensor* cpu_tensor,
                                  StatusCallback done);
 
+  static void StreamOperation(const DeviceContext* device_context,
+                              Device* gpu_device, StatusCallback op);
+
   // Blocks until all operations queued on the stream associated with
   // "gpu_device" at the time of the call have completed.  Returns any
   // error pending on the stream at completion.
