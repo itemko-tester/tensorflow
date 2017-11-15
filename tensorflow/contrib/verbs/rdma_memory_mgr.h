@@ -56,11 +56,11 @@ class RdmaMemoryMgr {
     }
 
     // Return true if inserted new
-    bool SetTensorMetaData(const std::string& tensor_name, DataType dtype, const TensorShape& shape) {
+    TensorMetaData* SetTensorMetaData(const std::string& tensor_name, DataType dtype, const TensorShape& shape) {
       mutex_lock l(tensor_sizes_mu_);
       TensorMetaData meta_data(dtype, shape);
       auto res = tensors_meta_data_.insert(std::make_pair(tensor_name, meta_data));
-      return res.second;
+      return &res.first->second;
     }
 
     struct ibv_pd *pd_;

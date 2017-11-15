@@ -44,6 +44,22 @@ class RdmaRemoteRendezvous : public BaseRemoteRendezvous {
   ~RdmaRemoteRendezvous() override {}
   RdmaMgr* rdma_mgr_;
 
+
+  void SendTensorMetaDataRequest(RdmaChannel* rc,
+                                 RdmaTensorRequest* request,
+                                 uint64_t step_id,
+                                 const Rendezvous::ParsedKey& parsed,
+                                 const Rendezvous::Args& recv_args,
+                                 DoneCallback done);
+
+  void SendTensorContentRequest(RdmaChannel* rc,
+                                RdmaTensorRequest* request,
+                                uint64_t step_id,
+                                const Rendezvous::ParsedKey& parsed,
+                                const Rendezvous::Args& recv_args,
+                                const TensorMetaData* meta_data,
+                                DoneCallback done);
+
   TF_DISALLOW_COPY_AND_ASSIGN(RdmaRemoteRendezvous);
 };
 
@@ -74,7 +90,6 @@ class DelegatedAllocator: public Allocator {
     return value_;
   }
   void DeallocateRaw(void* ptr) override {
-//    LOG(INFO) << "ELAD: DEALLOCATING " << value_;
 //    debug_mu_.lock();
 //    deallocated++;
 //    debug_mu_.unlock();
@@ -102,19 +117,6 @@ class DelegatedAllocator: public Allocator {
 //int DelegatedAllocator::allocated = 0;
 //int DelegatedAllocator::deallocated = 0;
 
-
-#define MAX_TENSOR_SIZE         ((10 * 1024 * 1024))
-
-const TensorShape& InitDummyShape() {
-  static TensorShape instance;
-  instance.AddDim(10);
-  instance.AddDim(1024);
-  instance.AddDim(1024);
-  return instance;
-}
-
-const TensorShape& kDummyShape = InitDummyShape();
-
 void RdmaRemoteRendezvous::RecvFromRemoteAsync(
     const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& recv_args,
     DoneCallback done) {
@@ -141,25 +143,8 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
   }
   CHECK(dst_name.compare(rdma_mgr_->local_worker()) == 0);
   RdmaChannel* rc = rdma_mgr_->FindChannel(src_name);
-  string key(std::move(parsed.FullKey().ToString()));
-  string key_with_step_id = VerbsUtil::AppendStepidToKey(key, step_id_);
-  uint64_t step_id = step_id_;
+  RdmaTensorRequest* request = rc->CreatePendingRequest();
 
-  Device* src_dev;
-  s = env_->device_mgr->LookupDevice("CPU:0", &src_dev);
-  CHECK(s.ok()) << "s is not ok, error code " << s.error_message();
-  if (!s.ok()) {
-    done(s, Args(), recv_args, Tensor(), true);
-    return;
-  }
-
-  Device* dst_dev;
-  s = env_->device_mgr->LookupDevice(parsed.dst_device, &dst_dev);
-  CHECK(s.ok()) << "s is not ok, error code " << s.error_message();
-  if (!s.ok()) {
-    done(s, Args(), recv_args, Tensor(), true);
-    return;
-  }
 
   //*************************************************************************************
   // Preallocate the result Tensor.
@@ -167,6 +152,76 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
   // do rdma_write into, and afterwards do device copy from it to the result Tensor.
   // Either way, we need to know the Tensor size at this stage.
   //*************************************************************************************
+
+  string key(std::move(parsed.FullKey().ToString()));
+  const TensorMetaData* meta_data = RdmaMemoryMgr::Singleton().GetTensorMetaData(key);
+  if (meta_data == nullptr)
+  {
+    SendTensorMetaDataRequest(rc, request, step_id_, parsed, recv_args, done);
+  }
+  else
+  {
+    SendTensorContentRequest(rc, request, step_id_, parsed, recv_args, meta_data, done);
+  }
+}
+
+void RdmaRemoteRendezvous::SendTensorMetaDataRequest(RdmaChannel* rc,
+                                                     RdmaTensorRequest* request,
+                                                     uint64_t step_id,
+                                                     const Rendezvous::ParsedKey& parsed,
+                                                     const Rendezvous::Args& recv_args,
+                                                     DoneCallback done)
+{
+  string key(std::move(parsed.FullKey().ToString()));
+
+  RdmaMessage rm;
+  rm.type_ = RDMA_MESSAGE_TENSOR_META_DATA_REQUEST;
+  rm.name_size_ = key.size();
+  rm.name_ = key;
+  rm.step_id_ = step_id;
+  rm.request_index_ = request->index_;
+
+  RdmaTensorRequest::RecvMetaDataCallback* cb = new RdmaTensorRequest::RecvMetaDataCallback(
+      [this, rc, parsed, recv_args, request, step_id, key, done](const DataType& dtype, const TensorShape& shape)
+      {
+          TensorMetaData* meta_data = RdmaMemoryMgr::Singleton().SetTensorMetaData(key,
+                                                                                   dtype,
+                                                                                   shape);
+          SendTensorContentRequest(rc, request, step_id, parsed, recv_args, meta_data, done);
+      }
+  );
+
+  request->recv_meta_data_callback_ = cb;
+
+//  LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
+//            << ": SENDING META-DATA REQUEST #" << request->index_ << ": " << rm.name_;
+
+  string message = RdmaMessage::CreateMessage(rm);
+  rc->tx_message_buffer_->EnqueueItem(message);
+  rc->tx_message_buffer_->SendNextItem();
+}
+
+void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
+                                                    RdmaTensorRequest* request,
+                                                    uint64_t step_id,
+                                                    const Rendezvous::ParsedKey& parsed,
+                                                    const Rendezvous::Args& recv_args,
+                                                    const TensorMetaData* meta_data,
+                                                    DoneCallback done)
+{
+  Status s;
+  static uint64_t num_proxies = 0;
+  static uint64_t num_proxy_bytes = 0;
+  // parse src_name and dst_name
+
+  string key(std::move(parsed.FullKey().ToString()));
+  Device* dst_dev;
+  s = env_->device_mgr->LookupDevice(parsed.dst_device, &dst_dev);
+  CHECK(s.ok()) << "s is not ok, error code " << s.error_message();
+  if (!s.ok()) {
+    done(s, Args(), recv_args, Tensor(), true);
+    return;
+  }
 
   DelegatedAllocator* result_tensor_allocator =
       new DelegatedAllocator(dst_dev->GetAllocator(recv_args.alloc_attrs));
@@ -178,20 +233,12 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
   void* rdma_addr = nullptr;
   ibv_mr* mr = nullptr;
 
-  const TensorMetaData* meta_data = RdmaMemoryMgr::Singleton().GetTensorMetaData(key);
-  if (meta_data == nullptr)
-  {
-    tensor_size = 0xa0000;
-    rdma_addr = result_tensor_allocator->AllocateRaw(32, tensor_size);
-  }
-  else
-  {
-    result_tensor = new Tensor(result_tensor_allocator,
-                               meta_data->data_type_,
-                               meta_data->tensor_shape_);
-    tensor_size = result_tensor->TotalBytes();
-    rdma_addr = result_tensor_allocator->Value();
-  }
+
+  result_tensor = new Tensor(result_tensor_allocator,
+                             meta_data->data_type_,
+                             meta_data->tensor_shape_);
+  tensor_size = result_tensor->TotalBytes();
+  rdma_addr = result_tensor_allocator->Value();
 
   if (tensor_size > 0 )
   {
@@ -222,75 +269,63 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
     }
   }
 
-  int pending_request_index = rc->PutPendingRequest(rdma_addr);
-
   // insert callback
   // ELAD: CALLBACK TO BE DONE WHEN RECEIVING RDMA_MESSAGE_TENSOR_WRITE.
   //        Create the result tensor from the written data, and invoke the DoneCallback.
 
-  rc->InsertRecvCallback(pending_request_index, [this, key, step_id, rc, pending_request_index,
-                                                 rdma_addr, result_tensor, proxy_tensor,
-                                                 result_tensor_allocator, rdma_proxy_allocator,
-                                                 src_dev, dst_dev, recv_args, parsed, done]() {
-
+  RdmaTensorRequest::RecvContentCallback* cb = new RdmaTensorRequest::RecvContentCallback(
+      [this, key, step_id, rc, request,
+       rdma_addr, result_tensor, proxy_tensor,
+       result_tensor_allocator, rdma_proxy_allocator,
+       dst_dev, recv_args, parsed, done]()
+  {
     Status s;
-    Tensor* rt = result_tensor;
-    Tensor* pt = proxy_tensor;
-    if (rt == nullptr) {
-
-      const TensorMetaData* mt = RdmaMemoryMgr::Singleton().GetTensorMetaData(key);
-      while (mt == nullptr) {
-//        LOG(INFO) << "STEP 0x" << std::hex << step_id << ": WAITING FOR TENSOR " << key << " META-DATA";
-        mt = RdmaMemoryMgr::Singleton().GetTensorMetaData(key);
-      }
-
-       rt = new Tensor(result_tensor_allocator,
-                       mt->data_type_,
-                       mt->tensor_shape_);
-
-       if (rdma_proxy_allocator != nullptr)
-       {
-         pt = new Tensor(rdma_proxy_allocator,
-                         mt->data_type_,
-                         mt->tensor_shape_);
-       }
-    }
-
-
 //    LOG(INFO) << "STEP 0x" << std::hex << step_id << std::dec
-//              << ": RECEIVED RESPONSE #" << pending_request_index << ": " << key << ": " //<< result_tensor->DebugString()
-//              << "(SIZE: 0x" << std::hex << rt->TotalBytes() << ")";
+//              << ": RECEIVED CONTENT RESPONSE #" << request->index_ << ": " << key << ": " //<< result_tensor->DebugString()
+//              << "(SIZE: 0x" << std::hex << result_tensor->TotalBytes() << ")";
 
     Tensor val;
-    if (pt != nullptr)
+    if (proxy_tensor != nullptr)
       /*dst_dev->tensorflow_gpu_device_info() &&
         (!recv_args.alloc_attrs.on_host()))*/ {
 
 //      LOG(INFO) << "ELAD PROXYING " << std::hex << rdma_proxy_allocator->Name() << " ==> " << result_tensor_allocator->Name();
+      num_proxy_bytes += result_tensor->TotalBytes();
+      if (++num_proxies % 1000 == 0) {
+        LOG(INFO) << "Number of proxies: " << num_proxies << " (" << num_proxy_bytes << " Bytes).";
+      }
 
       GPUUtil::CopyCPUTensorToGPU(
-          pt, recv_args.device_context, dst_dev, rt,
-          [this, pt, rt, pending_request_index, recv_args, done, rc](const Status& s) {
+          proxy_tensor, recv_args.device_context, dst_dev, result_tensor,
+          [this, proxy_tensor, result_tensor, request, recv_args, done, rc](const Status& s) {
             CHECK(s.ok()) << "copy tensor to gpu sync";
             Tensor val;
-            val = std::move(*rt);
-            delete rt;
-            delete pt;
-            rc->RemoveRecvCallback(pending_request_index);
+            val = std::move(*result_tensor);
+            delete result_tensor;
+            delete proxy_tensor;
             done(s, Args(), recv_args, val, false);
           });
       return;
     }
-    val = std::move(*rt);
-    delete rt;
-    rc->RemoveRecvCallback(pending_request_index);
+
+    val = std::move(*result_tensor);
+    delete result_tensor;
+
+//
+//    static int count = 0;
+//    if (count++ == 2) {
+//      return;
+//    }
+
     done(s, Args(), recv_args, val, false);
   });
 
+  request->recv_content_callback_ = cb;
+
   // append key to message queue
   RdmaMessage rm;
-  rm.type_ = RDMA_MESSAGE_TENSOR_REQUEST;
-  rm.tensor_bytes_ = (RdmaMessageType)pending_request_index;
+  rm.type_ = RDMA_MESSAGE_TENSOR_CONTENT_REQUEST;
+  rm.request_index_ = request->index_;
   rm.name_size_ = key.size();
   rm.name_ = key;
   rm.step_id_ = step_id_;
@@ -298,7 +333,7 @@ void RdmaRemoteRendezvous::RecvFromRemoteAsync(
   rm.rkey_ = (mr == nullptr) ? 0 : mr->rkey;
 
 //  LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
-//            << ": SENDING REQUEST #" << pending_request_index << ": " << rm.name_
+//            << ": SENDING CONTENT REQUEST #" << request->index_ << ": " << rm.name_
 //            << " ON " << result_tensor_allocator->Name() << " (RKEY: 0x" << std::hex << rm.rkey_ << ")";
 
   string message = RdmaMessage::CreateMessage(rm);

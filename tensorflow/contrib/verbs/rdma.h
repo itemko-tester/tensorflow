@@ -82,12 +82,13 @@ enum BufferType {
   TENSOR
 };
 enum RdmaMessageType {
-  RDMA_MESSAGE_TENSOR_REQUEST,
+  RDMA_MESSAGE_TENSOR_CONTENT_REQUEST,
+  RDMA_MESSAGE_TENSOR_META_DATA_REQUEST,
   RDMA_MESSAGE_TENSOR_META_DATA_RESPONSE
 };
-enum RdmaMessageImm {
-  RDMA_MESSAGE_IMM_ACK = 0x80000000,
-  RDMA_MESSAGE_IMM_TENSOR_REQUEST = 0x80000001,
+enum RdmaImmType {
+  RDMA_IMM_TYPE_ACK = 0x80000000,
+  RDMA_IMM_TYPE_MESSAGE = 0x80000001,
 };
 
 class RdmaMgr;
@@ -130,6 +131,30 @@ class RdmaAdapter {
   std::unique_ptr<Thread> polling_thread_;
 };
 
+class RdmaTensorRequest {
+public:
+  typedef std::function<void(const DataType&, const TensorShape&)> RecvMetaDataCallback;
+  typedef std::function<void()> RecvContentCallback;
+
+  RdmaTensorRequest(int index):
+    index_(index), rdma_dst_addr_(nullptr) { }
+  int index_;
+  void *rdma_dst_addr_;
+  RecvMetaDataCallback* recv_meta_data_callback_;
+  RecvContentCallback* recv_content_callback_;
+};
+
+class RdmaTensorResponse {
+public:
+  RdmaTensorResponse(int index):
+    index_(index) { }
+  int index_;
+  Tensor in_;
+  bool is_dead_;
+  Rendezvous::Args send_args_;
+  Rendezvous::Args recv_args_;
+};
+
 // Class that represents a connection to a remote Rdma peer.
 // Responsible for connecting queue pairs.
 class RdmaChannel {
@@ -157,23 +182,16 @@ class RdmaChannel {
   RdmaBuffer* FindBuffer(const string& name);
   RdmaBuffer* FindOrCreateBuffer(const string& name,
                                  BufferType buffer_type = TENSOR);
-  int PutPendingRequest(void* dst_rdma_addr) {
-    mutex_lock l(pending_requests_mu_);
-    pending_requests_[pending_request_serial] = dst_rdma_addr;
-    return pending_request_serial++;
-  }
-  void* PopPendingRequest(int request_num) {
-    mutex_lock l(pending_requests_mu_);
-    auto it = pending_requests_.find(request_num);
-    CHECK(it != pending_requests_.end());
-    pending_requests_.erase(it);
-    return it->second;
-  }
+
+  RdmaTensorRequest* CreatePendingRequest();
+  RdmaTensorRequest* PopPendingRequest(int request_index);
+  RdmaTensorRequest* GetPendingRequest(int request_index);
+  RdmaTensorResponse* CreatePendingResponse(int request_index);
+  RdmaTensorResponse* DeletePendingResponse(int request_index);
+  RdmaTensorResponse* GetPendingResponse(int request_index);
+
   uint32_t LookupBufferIndex(const string& buffer_name);
   void SetRemoteAddress(const RdmaAddress& ra, bool override);
-  void InsertRecvCallback(int request_index, std::function<void()> recv_done);
-  void RemoveRecvCallback(int request_index);
-  void RunRecvCallback(int request_index);
   static const int kNumMessageBuffers = 4;
 
  protected:
@@ -186,9 +204,6 @@ class RdmaChannel {
   bool connected_ GUARDED_BY(bt_mu_) = false;
   RdmaAddress remote_ GUARDED_BY(bt_mu_);
   bool remote_set_ GUARDED_BY(bt_mu_) = false;
-  mutex ct_mu_;
-  typedef std::unordered_map<int, std::function<void()> > CallbackTable;
-  CallbackTable callback_table_ GUARDED_BY(ct_mu_);
   mutex bt_mu_;
   typedef std::unordered_map<unsigned int, RdmaBuffer*> BufferTable;
   BufferTable buffer_table_ GUARDED_BY(bt_mu_);
@@ -203,7 +218,9 @@ class RdmaChannel {
   std::vector<RdmaBuffer*> message_buffers_;
   mutex pending_requests_mu_;
   int pending_request_serial = 0;
-  std::map<int, void*> pending_requests_ GUARDED_BY(pending_requests_mu_);
+  std::map<int, RdmaTensorRequest> pending_requests_ GUARDED_BY(pending_requests_mu_);
+  mutex pending_responses_mu_;
+  std::map<int, RdmaTensorResponse> pending_responses_ GUARDED_BY(pending_responses_mu_);
 };
 
 // Class that represents a buffer for Rdma writes and reads.
@@ -274,22 +291,25 @@ class RdmaTensorBuffer : public RdmaBuffer {
   explicit RdmaTensorBuffer(RdmaChannel* channel, string name);
   virtual ~RdmaTensorBuffer() override;
 
-  static void PostCopyOperations(const RdmaChannel* channel,
-                          uint64_t remote_addr, uint32_t rkey,
-                          bool can_memcpy, size_t buffer_size,
-                          size_t tensor_bytes, const string& key,
-                          const Tensor& in, int64 step_id, bool is_dead,
-                          int pending_request_index,
-                          const string& key_with_step_id,
-                          const TensorProto* proto,
-                          const Rendezvous::Args& send_args,
-                          const Rendezvous::Args& recv_args);
+  static void SendTensorMetaDataResponse(const RdmaChannel* channel,
+                                         const string& key,
+                                         int64 step_id,
+                                         const RdmaTensorResponse* response);
 
-  static Rendezvous::DoneCallback getRecvTensorCallback(
+  static void PostCopyOperations(
+                          const RdmaChannel* channel, uint64_t remote_addr, uint32_t rkey,
+                          bool can_memcpy, const string& key,
+                          const Tensor& in, int64 step_id, bool is_dead, int request_index,
+                          const Rendezvous::Args& send_args, const Rendezvous::Args& recv_args);
+
+  static void SendTensorContentResponse(
                           const RdmaChannel* channel,
+                          const Rendezvous::Args& send_args,
+                          const Rendezvous::Args& recv_args,
+                          const Tensor& in, bool is_dead,
                           uint64_t remote_addr, uint32_t rkey,
-                          const string& key_with_step_id, const string& key, int64 step_id,
-                          int pending_request_index, const Rendezvous::ParsedKey& parsed);
+                          const string& key, int64 step_id,
+                          int request_index, const Rendezvous::ParsedKey& parsed);
 
  private:
   struct ReItem {
@@ -339,7 +359,7 @@ struct RdmaMessage {
   bool is_dead_;
   DataType data_type_;
   TensorShape tensor_shape_;
-  size_t tensor_bytes_;
+  size_t request_index_;
 
   // type|name_size|name|step_id|buffer_size|remote_addr|rkey|is_dead|...
   //   1B|    2B   | 512|  8B   |    8B     |       8B  | 4B |    1B |...
@@ -367,7 +387,7 @@ struct RdmaMessage {
       kTensorShapeStartIndex + sizeof(TensorShape);
   static const size_t kTensorBufferStartIndex =
       //kTensorBytesStartIndex + sizeof(tensor_bytes_);
-      ((((kTensorBytesStartIndex + sizeof(tensor_bytes_)) - 1) >> 5) + 1) << 5;
+      ((((kTensorBytesStartIndex + sizeof(request_index_)) - 1) >> 5) + 1) << 5;
 
   static const size_t kMessageTotalBytes = kTensorBufferStartIndex;
   static const size_t kRdmaMessageBufferSize = kMessageTotalBytes;
