@@ -471,7 +471,6 @@ RdmaTensorResponse* RdmaChannel::DeletePendingResponse(int request_index) {
   auto it = pending_responses_.find(request_index);
   CHECK(it != pending_responses_.end());
   pending_responses_.erase(it);
-  DMAHelper::buffer(&it->second.in_)->Unref();
   return &it->second;
 }
 RdmaTensorResponse* RdmaChannel::GetPendingResponse(int request_index) {
@@ -571,15 +570,10 @@ void RdmaAdapter::Process_CQ() {
 
               CHECK(status.ok()) << "RecvLocalAsync was not ok: " << status.error_message();
               RdmaTensorResponse* response = rc->CreatePendingResponse(request_index);
-              response->in_ = in;
+              response->in_ = std::move(in);
               response->send_args_ = send_args;
               response->recv_args_ = recv_args;
               response->is_dead_ = is_dead;
-
-              TensorBuffer* src_buffer = (TensorBuffer*)DMAHelper::buffer(&in);
-              if (src_buffer != nullptr) {
-                src_buffer->Ref();
-              }
 
               RdmaTensorBuffer::SendTensorMetaDataResponse(rc, key, step_id, response);
             };
@@ -601,10 +595,6 @@ void RdmaAdapter::Process_CQ() {
                                                 const Tensor& in, bool is_dead)
               {
                 CHECK(status.ok()) << "RecvLocalAsync was not ok: " << status.error_message();
-                TensorBuffer* src_buffer = (TensorBuffer*)DMAHelper::buffer(&in);
-                if (src_buffer != nullptr) {
-                  src_buffer->Ref();
-                }
                 RdmaTensorBuffer::SendTensorContentResponse(rc, send_args, recv_args, in, is_dead,
                                                             rm.remote_addr_, rm.rkey_, rm.name_, rm.step_id_, request_index, parsed);
               };
@@ -612,7 +602,9 @@ void RdmaAdapter::Process_CQ() {
             }
             else
             {
-              RdmaTensorBuffer::SendTensorContentResponse(rc, response->send_args_, response->recv_args_, response->in_, response->is_dead_,
+              RdmaTensorResponse r = *response;
+              rc->DeletePendingResponse(request_index);
+              RdmaTensorBuffer::SendTensorContentResponse(rc, r.send_args_, r.recv_args_, r.in_, r.is_dead_,
                                                           rm.remote_addr_, rm.rkey_, rm.name_, rm.step_id_, request_index, parsed);
             }
 
@@ -1236,6 +1228,7 @@ void RdmaTensorBuffer::PostCopyOperations(
   }
   else
   {
+    src_buffer->Ref(); // Keep the buffer alive until the write completes.
     src_addr = src_buffer->data();
     write_size = in.TotalBytes();
     ibv_mr* mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(src_addr, write_size);
