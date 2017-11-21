@@ -250,17 +250,10 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
       {
         // Can't RDMA directly to result. Use a proxy.
         rdma_proxy_allocator = new DelegatedAllocator(ProcessState::singleton()->GetCUDAHostAllocator(0));
-        if (meta_data == nullptr)
-        {
-          rdma_addr = rdma_proxy_allocator->AllocateRaw(32, tensor_size);
-        }
-        else
-        {
-          proxy_tensor = new Tensor(rdma_proxy_allocator,
-                                    meta_data->data_type_,
-                                    meta_data->tensor_shape_);
-          rdma_addr = rdma_proxy_allocator->Value();
-        }
+        proxy_tensor = new Tensor(rdma_proxy_allocator,
+                                  meta_data->data_type_,
+                                  meta_data->tensor_shape_);
+        rdma_addr = rdma_proxy_allocator->Value();
         mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
       }
     }
