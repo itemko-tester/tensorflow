@@ -298,7 +298,7 @@ class RdmaTensorBuffer : public RdmaBuffer {
 
   static void PostCopyOperations(
                           const RdmaChannel* channel, uint64_t remote_addr, uint32_t rkey,
-                          bool can_memcpy, const string& key,
+                          bool can_memcpy, const string& key, const TensorProto& proto,
                           const Tensor& in, int64 step_id, bool is_dead, int request_index,
                           const Rendezvous::Args& send_args, const Rendezvous::Args& recv_args);
 

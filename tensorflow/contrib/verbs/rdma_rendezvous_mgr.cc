@@ -238,35 +238,49 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
                              meta_data->data_type_,
                              meta_data->tensor_shape_);
   tensor_size = result_tensor->TotalBytes();
-  rdma_addr = result_tensor_allocator->Value();
 
-  if (tensor_size > 0 )
+  bool can_memcpy = DataTypeCanUseMemcpy(meta_data->data_type_);
+  if (can_memcpy)
   {
-    mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
-    if (mr == nullptr)
+    if (tensor_size > 0)
     {
-      // Can't RDMA directly to result. Use a proxy.
-      rdma_proxy_allocator = new DelegatedAllocator(ProcessState::singleton()->GetCUDAHostAllocator(0));
-      if (meta_data == nullptr)
-      {
-        rdma_addr = rdma_proxy_allocator->AllocateRaw(32, tensor_size);
-      }
-      else
-      {
-        proxy_tensor = new Tensor(rdma_proxy_allocator,
-                                  meta_data->data_type_,
-                                  meta_data->tensor_shape_);
-        rdma_addr = rdma_proxy_allocator->Value();
-      }
+      rdma_addr = result_tensor_allocator->Value();
       mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
+      if (mr == nullptr)
+      {
+        // Can't RDMA directly to result. Use a proxy.
+        rdma_proxy_allocator = new DelegatedAllocator(ProcessState::singleton()->GetCUDAHostAllocator(0));
+        if (meta_data == nullptr)
+        {
+          rdma_addr = rdma_proxy_allocator->AllocateRaw(32, tensor_size);
+        }
+        else
+        {
+          proxy_tensor = new Tensor(rdma_proxy_allocator,
+                                    meta_data->data_type_,
+                                    meta_data->tensor_shape_);
+          rdma_addr = rdma_proxy_allocator->Value();
+        }
+        mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
+      }
     }
+    else
+    {
+      rdma_addr = 0;
+      mr = nullptr;
+    }
+  }
+  else
+  {
+    rdma_addr = ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, 40000);
+    mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, 40000);
+  }
 
-    if (mr == nullptr) {
-      LOG(FATAL) << "ELAD COULD NOT GET AN RDMABLE DESTINATION ADDRESS"
-                 << ".\n RESULT: " << result_tensor_allocator->Name()
-                 << ".\n PROXY: "  << rdma_proxy_allocator->Name()
-                 << ".\n SIZE: "   << tensor_size;
-    }
+  if ((tensor_size > 0) && (mr == nullptr)) {
+    LOG(FATAL) << "ELAD COULD NOT GET AN RDMABLE DESTINATION ADDRESS"
+               << ".\n RESULT: " << result_tensor_allocator->Name()
+               << ".\n PROXY: "  << rdma_proxy_allocator->Name()
+               << ".\n SIZE: "   << tensor_size;
   }
 
   // insert callback
@@ -275,7 +289,7 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
 
   RdmaTensorRequest::RecvContentCallback* cb = new RdmaTensorRequest::RecvContentCallback(
       [this, key, step_id, rc, request,
-       rdma_addr, result_tensor, proxy_tensor,
+       can_memcpy, rdma_addr, result_tensor, proxy_tensor,
        result_tensor_allocator, rdma_proxy_allocator,
        dst_dev, recv_args, parsed, done]()
   {
@@ -308,8 +322,19 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
       return;
     }
 
-    val = std::move(*result_tensor);
-    delete result_tensor;
+    if (can_memcpy)
+    {
+      val = std::move(*result_tensor);
+      delete result_tensor;
+    }
+    else
+    {
+      int proto_size = *(int*)rdma_addr;
+//      LOG(INFO) << "ELAD: PARSING FROM PROTO: " << key << " (SIZE: " << proto_size << ")";
+      TensorProto proto;
+      CHECK(ParseProtoUnlimited(&proto, rdma_addr + 4, proto_size)) << "fail to parse proto from array";
+      s = dst_dev->MakeTensorFromProto(proto, recv_args.alloc_attrs, &val);
+    }
 
 //
 //    static int count = 0;

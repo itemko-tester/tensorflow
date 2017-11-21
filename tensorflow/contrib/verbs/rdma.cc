@@ -1127,7 +1127,7 @@ void RdmaTensorBuffer::SendTensorContentResponse(
         GPUUtil::StreamOperation(send_args.device_context, src_dev,
             [channel, remote_addr, rkey, proto, key, in, step_id,
              is_dead, request_index, send_args, recv_args](const Status& s) {
-              PostCopyOperations(channel, remote_addr, rkey, true, key, in,
+              PostCopyOperations(channel, remote_addr, rkey, true, key, proto, in,
                                  step_id, is_dead, request_index,
                                  send_args, recv_args);
             });
@@ -1151,7 +1151,7 @@ void RdmaTensorBuffer::SendTensorContentResponse(
             [channel, remote_addr, rkey, copy, proto, key, in, step_id,
              is_dead, request_index, send_args, recv_args](const Status& s) {
               CHECK(s.ok()) << "copy tensor from gpu sync";
-              PostCopyOperations(channel, remote_addr, rkey, true, key, *copy,
+              PostCopyOperations(channel, remote_addr, rkey, true, key, proto, *copy,
                                  step_id, is_dead, request_index,
                                  send_args, recv_args);
               delete copy;
@@ -1166,7 +1166,7 @@ void RdmaTensorBuffer::SendTensorContentResponse(
           is_dead, request_index, send_args, recv_args](const Status& s) mutable {
             CHECK(s.ok()) << "copy proto from gpu sync";
             auto tensor_bytes = proto.ByteSize();
-            PostCopyOperations(channel, remote_addr, rkey, false, key, in,
+            PostCopyOperations(channel, remote_addr, rkey, false, key, proto, in,
                                step_id, is_dead, request_index,
                                send_args, recv_args);
           });
@@ -1176,7 +1176,7 @@ void RdmaTensorBuffer::SendTensorContentResponse(
     if (!can_memcpy) {
       in.AsProtoTensorContent(&proto);
     }
-    PostCopyOperations(channel, remote_addr, rkey, can_memcpy,  key, in,
+    PostCopyOperations(channel, remote_addr, rkey, can_memcpy,  key, proto, in,
                        step_id, is_dead, request_index,
                        send_args, recv_args);
   }
@@ -1184,7 +1184,7 @@ void RdmaTensorBuffer::SendTensorContentResponse(
 
 void RdmaTensorBuffer::PostCopyOperations(
     const RdmaChannel* channel, uint64_t remote_addr, uint32_t rkey,
-    bool can_memcpy, const string& key,
+    bool can_memcpy, const string& key, const TensorProto& proto,
     const Tensor& in, int64 step_id, bool is_dead, int request_index,
     const Rendezvous::Args& send_args, const Rendezvous::Args& recv_args) {
 
@@ -1194,58 +1194,50 @@ void RdmaTensorBuffer::PostCopyOperations(
   if (is_dead) {
     LOG(FATAL) << "TENSOR IS DEAD.";
   }
-//  if (!can_memcpy) {
-//    LOG(FATAL) << "CAN'T MEMCPY.";
-//  }
-//  if (!is_dead) {
-//    // copy the tensor buffer content
-//    void* output = static_cast<void*>(static_cast<char*>(src_buffer) +
-//                                      RdmaMessage::kTensorBufferStartIndex);
-//    if (can_memcpy) {
-//      CHECK(copy != NULL) << "callback missing pointer to copy tensor";
-//      CHECK(copy_buf != NULL) << "callback missing pointer to copy buffer";
-//      CHECK(copy_buf->size() == tensor_bytes)
-//          << "unexpected tensor size: " << copy_buf->size()
-//          << " != " << tensor_bytes;
-//      memcpy(output, copy_buf->data(), tensor_bytes);
-//    } else {
-//      CHECK(proto != NULL) << "callback missing pointer to proto tensor";
-//      proto->SerializeToArray(output, tensor_bytes);
-//    }
-//  } else {
-//    buffer_size = RdmaMessage::kMessageTotalBytes;
-//  }
 
   void* src_addr;
   size_t write_size;
-  uint32_t lkey;
-  if (src_buffer == nullptr)
+  void* write_context;
+  ibv_mr* mr;
+  if (can_memcpy)
   {
-    src_addr = nullptr; //ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, 1);
-    write_size = 0;
-    lkey = 0;
-//    LOG(INFO) << "PERFORMING EMPTY TENSOR WRITE.";
+    write_size = in.TotalBytes();
+    if (write_size > 0)
+    {
+      src_addr = src_buffer->data();
+      src_buffer->Ref(); // Keep the buffer alive until the write completes.
+      write_context = (void*)src_buffer;
+      mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(src_addr, write_size);
+      CHECK(mr != nullptr) << " NO MEMORY REGION FOUND FOR " << src_addr << ": " << key;
+    }
+    else
+    {
+      src_addr = 0;
+      mr = nullptr;
+      write_context = nullptr;
+    }
   }
   else
   {
-    src_buffer->Ref(); // Keep the buffer alive until the write completes.
-    src_addr = src_buffer->data();
-    write_size = in.TotalBytes();
-    ibv_mr* mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(src_addr, write_size);
+    write_size = proto.ByteSize() + 4;
+    src_addr = ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, write_size);
+    *(int*)src_addr = proto.ByteSize();
+//    LOG(INFO) << "DECODING " << key << " TO PROTO OF SIZE: " << proto.ByteSize();
+    proto.SerializeToArray(src_addr + 4, write_size);
+    write_context = nullptr;
+    mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(src_addr, write_size);
     CHECK(mr != nullptr) << " NO MEMORY REGION FOUND FOR " << src_addr << ": " << key;
-    lkey = mr->lkey;
-//    LOG(INFO) << "WRITING TENSOR FROM " << std::hex << src_addr << " (0x" << lkey << ") TO 0x" << std::hex << remote_addr << " (0x" << rkey << "). SIZE: 0x" << write_size;
   }
 
 
   struct ibv_sge list;
   list.addr = (uint64_t)src_addr;
   list.length = write_size;
-  list.lkey = lkey;
+  list.lkey = (mr == nullptr) ? 0 : mr->lkey;
 
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
-  wr.wr_id = (uint64_t)new WriteContextDesc(imm_data, (void*)src_buffer);
+  wr.wr_id = (uint64_t)new WriteContextDesc(imm_data, write_context);
   wr.sg_list = &list;
   wr.num_sge = 1;
   wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
@@ -1256,7 +1248,7 @@ void RdmaTensorBuffer::PostCopyOperations(
 
 //  LOG(INFO) << "STEP 0x" << std::hex << step_id << std::dec
 //            << ": SENDING CONTENT RESPONSE #" << request_index
-//            << " FROM " << std::hex << src_addr << " (0x" << lkey << ") TO 0x" << remote_addr << " (0x" << rkey << "): "
+//            << " FROM " << std::hex << src_addr << " (0x" << list.lkey << ") TO 0x" << remote_addr << " (0x" << rkey << "): "
 //            << key << " (SIZE: 0x" << std::hex << write_size << ")";
 
   struct ibv_send_wr* bad_wr;
