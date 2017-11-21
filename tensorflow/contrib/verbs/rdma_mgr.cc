@@ -31,6 +31,40 @@ limitations under the License.
 
 namespace tensorflow {
 
+#include <execinfo.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void
+print_trace (void)
+{
+  void *array[10];
+  size_t size;
+  char **strings;
+  size_t i;
+
+  size = backtrace (array, 10);
+  strings = backtrace_symbols (array, size);
+
+  printf ("Obtained %zd stack frames.\n", size);
+
+  for (i = 0; i < size; i++)
+     printf ("%s\n", strings[i]);
+
+  free (strings);
+}
+
+void my_handler (int param)
+{
+  LOG(INFO) << "GOT SIGNAL " << param;
+  print_trace();
+
+  while(1);
+  signal(param, nullptr);
+  raise(param);
+}
+
+
 RdmaMgr::RdmaMgr(const WorkerEnv* const worker_env,
                  GrpcChannelCache* const channel_cache)
     : worker_env_(worker_env), channel_cache_(channel_cache) {
@@ -51,6 +85,11 @@ RdmaMgr::RdmaMgr(const WorkerEnv* const worker_env,
            new RdmaChannel(rdma_adapter_, local_worker_, workers[i])});
     }
   }
+
+  signal (SIGINT, my_handler);
+  signal (SIGSEGV, my_handler);
+  signal (SIGTERM, my_handler);
+  signal (SIGABRT, my_handler);
 }
 
 // Setup Rdma channels between peers.
