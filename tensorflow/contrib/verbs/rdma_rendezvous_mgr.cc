@@ -63,60 +63,6 @@ class RdmaRemoteRendezvous : public BaseRemoteRendezvous {
   TF_DISALLOW_COPY_AND_ASSIGN(RdmaRemoteRendezvous);
 };
 
-class DelegatedAllocator: public Allocator {
- public:
-//  DelegatedAllocator(Allocator* sub_allocator, void* addr)
-//      : sub_allocator_(sub_allocator),
-//        delegate_value_(addr) {
-//  }
-
-  DelegatedAllocator(Allocator* sub_allocator)
-      : sub_allocator_(sub_allocator),
-        value_(nullptr) {
-  }
-
-  string Name() override {
-    std::stringstream s;
-    s << "DelegatedAllocator (" << sub_allocator_->Name() << " ==> 0x" << std::hex << value_ << ")";
-    return s.str();
-  }
-  void* AllocateRaw(size_t alignment, size_t num_bytes) override {
-    if (value_ == nullptr) {
-      value_ = sub_allocator_->AllocateRaw(alignment, num_bytes);
-//      debug_mu_.lock();
-//      allocated++;
-//      debug_mu_.unlock();
-    }
-    return value_;
-  }
-  void DeallocateRaw(void* ptr) override {
-//    debug_mu_.lock();
-//    deallocated++;
-//    debug_mu_.unlock();
-//    if (deallocated % 1000 == 0) {
-//      LOG(INFO) << "ALLOCATED: " << allocated << ". DEALLOCATED: " << deallocated;
-//    }
-
-    CHECK(ptr == value_);
-    sub_allocator_->DeallocateRaw(ptr);
-    //delete this;
-  }
-
-  void* Value() {
-    return value_;
-  }
- private:
-//  static mutex debug_mu_;
-//  static int allocated;
-//  static int deallocated;
-  Allocator* sub_allocator_;
-  void* value_;
-};
-
-//mutex DelegatedAllocator::debug_mu_;
-//int DelegatedAllocator::allocated = 0;
-//int DelegatedAllocator::deallocated = 0;
-
 void RdmaRemoteRendezvous::RecvFromRemoteAsync(
     const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& recv_args,
     DoneCallback done) {
@@ -223,16 +169,13 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
     return;
   }
 
-  DelegatedAllocator* result_tensor_allocator =
-      new DelegatedAllocator(dst_dev->GetAllocator(recv_args.alloc_attrs));
-  DelegatedAllocator* rdma_proxy_allocator = nullptr;
-
+  Allocator* result_tensor_allocator = dst_dev->GetAllocator(recv_args.alloc_attrs);
+  Allocator* rdma_proxy_allocator = nullptr;
   Tensor* result_tensor = nullptr;
   Tensor *proxy_tensor = nullptr;
   size_t tensor_size = 0;
   void* rdma_addr = nullptr;
   ibv_mr* mr = nullptr;
-
 
   result_tensor = new Tensor(result_tensor_allocator,
                              meta_data->data_type_,
@@ -250,16 +193,16 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
       return;
     }
 
-    rdma_addr = result_tensor_allocator->Value();
+    rdma_addr = DMAHelper::base(result_tensor);
     mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
     if (mr == nullptr)
     {
       // Can't RDMA directly to result. Use a proxy.
-      rdma_proxy_allocator = new DelegatedAllocator(ProcessState::singleton()->GetCUDAHostAllocator(0));
+      rdma_proxy_allocator = ProcessState::singleton()->GetCUDAHostAllocator(0);
       proxy_tensor = new Tensor(rdma_proxy_allocator,
                                 meta_data->data_type_,
                                 meta_data->tensor_shape_);
-      rdma_addr = rdma_proxy_allocator->Value();
+      rdma_addr = DMAHelper::base(proxy_tensor);
       mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
     }
   }
@@ -352,7 +295,7 @@ void RdmaRemoteRendezvous::SendTensorContentRequest(RdmaChannel* rc,
 
 //  LOG(INFO) << "STEP 0x" << std::hex << rm.step_id_ << std::dec
 //            << ": SENDING CONTENT REQUEST #" << request->index_ << ": " << rm.name_
-//            << " ON " << result_tensor_allocator->Name() << " (RKEY: 0x" << std::hex << rm.rkey_ << ")";
+//            << " ON " << rdma_addr << " (RKEY: 0x" << std::hex << rm.rkey_ << ")";
 
   string message = RdmaMessage::CreateMessage(rm);
   rc->tx_message_buffer_->EnqueueItem(message);
