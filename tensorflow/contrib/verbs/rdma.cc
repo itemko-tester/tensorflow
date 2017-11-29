@@ -429,13 +429,13 @@ string RdmaAdapter::name() const { return string(context_->device->name); }
 
 class WriteContextDesc {
 public:
-  WriteContextDesc(uint64_t write_type, void* write_context)
-    : write_type_(write_type)
-    , write_context_(write_context) {
+  WriteContextDesc(uint32_t imm_data, void* write_context)
+    : imm_data(imm_data)
+    , write_context(write_context) {
   }
 
-  uint64_t write_type_;
-  void* write_context_;
+  uint32_t imm_data;
+  void* write_context;
 };
 
 
@@ -501,7 +501,7 @@ void RdmaAdapter::Process_CQ() {
     for (int i = 0; i < ne; ++i) {
       if (wc_[i].status != IBV_WC_SUCCESS) {
           WriteContextDesc* desc = reinterpret_cast<WriteContextDesc*>(wc_[i].wr_id);
-          int imm_data = desc->write_type_;
+          uint32_t imm_data = desc->imm_data;
           LOG(INFO) << "ERROR: " << ibv_wc_status_str(wc_[i].status) << ": "
                      << "OPCODE: " << wc_[i].opcode << " "
                      << "WR-ID: " << std::hex << "0x" << wc_[i].wr_id << " "
@@ -510,10 +510,10 @@ void RdmaAdapter::Process_CQ() {
           if ((imm_data == RDMA_IMM_TYPE_MESSAGE) ||
               (imm_data == RDMA_IMM_TYPE_ACK)) {
 
-            RdmaBuffer* rb = reinterpret_cast<RdmaBuffer*>(desc->write_context_);
+            RdmaBuffer* rb = reinterpret_cast<RdmaBuffer*>(desc->write_context);
             LOG(INFO) << "MESSAGE FAILED. SRC-BUFFER: " << rb->buffer_;
           } else {
-            TensorBuffer* src_buffer = reinterpret_cast<TensorBuffer*>(desc->write_context_);
+            TensorBuffer* src_buffer = reinterpret_cast<TensorBuffer*>(desc->write_context);
             LOG(INFO) << "TENSOR WRITE FAILED. SRC-BUFFER: " << ((src_buffer == nullptr) ? (void*)0 : src_buffer->data());
           }
           LOG(FATAL) << "Exiting.";
@@ -637,13 +637,13 @@ void RdmaAdapter::Process_CQ() {
       else if (wc_[i].opcode == IBV_WC_RDMA_WRITE)
       {
         WriteContextDesc* desc = reinterpret_cast<WriteContextDesc*>(wc_[i].wr_id);
-        imm_data = desc->write_type_;
+        imm_data = desc->imm_data;
 //        LOG(INFO) << "WRITE COMPLETED ON " << desc->write_context_ << " IMM: 0x" << std::hex << desc->write_type_;
 
         if ((imm_data == RDMA_IMM_TYPE_MESSAGE) ||
         	(imm_data == RDMA_IMM_TYPE_ACK))
         {
-          RdmaBuffer* rb = reinterpret_cast<RdmaBuffer*>(desc->write_context_);
+          RdmaBuffer* rb = reinterpret_cast<RdmaBuffer*>(desc->write_context);
           rb->SetBufferStatus(local, idle);
           if (imm_data != RDMA_IMM_TYPE_ACK)
           {
@@ -652,7 +652,7 @@ void RdmaAdapter::Process_CQ() {
         }
         else
         {
-          TensorBuffer* src_buffer = (TensorBuffer*)desc->write_context_;
+          TensorBuffer* src_buffer = (TensorBuffer*)desc->write_context;
           if (src_buffer != nullptr) {
   //          void* src_addr = src_buffer->data();
             src_buffer->Unref();
