@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
 #define THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
 
-//#ifdef TENSORFLOW_USE_VERBS
+#ifdef TENSORFLOW_USE_VERBS
 
 #include <infiniband/verbs.h>
 #include <cstring>  // for memset
@@ -398,5 +398,5 @@ struct RdmaMessage {
 
 }  // namespace tensorflow
 
-//#endif  // TENSORFLOW_USE_VERBS
+#endif  // TENSORFLOW_USE_VERBS
 #endif  // THIRD_PARTY_TENSORFLOW_CONTRIB_VERBS_RDMA_H_
