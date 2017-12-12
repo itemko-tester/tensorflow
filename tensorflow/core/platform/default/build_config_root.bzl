@@ -29,6 +29,7 @@ def tf_additional_verbs_deps():
   return select({
       str(Label("//tensorflow:with_verbs_support")): [
           str(Label("//tensorflow/contrib/verbs:verbs_server_lib")),
+          str(Label("//tensorflow/contrib/ucx:ucx_server_lib")),
           str(Label("//tensorflow/contrib/verbs:grpc_verbs_client")),
       ],
       "//conditions:default": [],
