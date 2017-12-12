@@ -1,0 +1,97 @@
+# Description:
+#   Ucx RDMA communication interfaces and implementations for TensorFlow.
+
+package(default_visibility = [
+    "//tensorflow:__subpackages__",
+])
+
+licenses(["notice"])  # Apache 2.0
+
+load("//tensorflow:tensorflow.bzl", "tf_cuda_library")
+
+exports_files(["LICENSE"])
+
+filegroup(
+    name = "all_files",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "**/METADATA",
+            "**/OWNERS",
+        ],
+    ),
+    visibility = ["//tensorflow:__subpackages__"],
+)
+
+filegroup(
+    name = "c_srcs",
+    data = glob([
+        "**/*.cc",
+        "**/*.h",
+    ]),
+)
+
+# For platform specific build config
+load(
+    "//tensorflow/core:platform/default/build_config.bzl",
+    "tf_proto_library_cc",
+)
+
+tf_proto_library_cc(
+    name = "ucx_service_proto",
+    srcs = ["ucx_service.proto"],
+    has_services = 1,
+    cc_api_version = 2,
+    visibility = [
+        "//tensorflow:__subpackages__",
+    ],
+)
+
+tf_cuda_library(
+    name = "ucx_rendezvous_mgr",
+    srcs = ["ucx_rendezvous_mgr.cc"],
+    hdrs = ["ucx_rendezvous_mgr.h"],
+    linkopts = select({
+        "//tensorflow:with_verbs_support": ["-lucs", "-lucp"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":ucx_mgr",
+        "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:gpu_runtime",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/distributed_runtime:base_rendezvous_mgr",
+        "//tensorflow/core/distributed_runtime:worker_env",
+    ],
+)
+
+cc_library(
+    name = "ucx_mgr",
+    srcs = ["ucx_mgr.cc"],
+    hdrs = ["ucx_mgr.h"],
+    deps = [
+        ":ucx_service_proto_cc",
+        "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:lib_internal",
+        "//tensorflow/core/distributed_runtime:session_mgr",
+        "//tensorflow/core/distributed_runtime:worker_env",
+        "//tensorflow/core/distributed_runtime/rpc:grpc_channel",
+        "//tensorflow/core/distributed_runtime/rpc:grpc_worker_cache",
+    ],
+)
+
+cc_library(
+    name = "ucx_server_lib",
+    srcs = ["ucx_server_lib.cc"],
+    hdrs = ["ucx_server_lib.h"],
+    linkstatic = 1,  # Seems to be needed since alwayslink is broken in bazel
+    deps = [
+        ":ucx_mgr",
+        ":ucx_rendezvous_mgr",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/distributed_runtime:server_lib",
+        "//tensorflow/core/distributed_runtime/rpc:grpc_server_lib",
+    ],
+    alwayslink = 1,
+)
