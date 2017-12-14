@@ -45,10 +45,11 @@ class GrpcUcxService : public AsyncServiceInterface {
   template <class RequestMessage, class ResponseMessage>
   using WorkerCall = Call<GrpcUcxService, grpc::UcxService::AsyncService,
                           RequestMessage, ResponseMessage>;
-  void GetRemoteAddressHandler(
-      WorkerCall<GetRemoteAddressRequest, GetRemoteAddressResponse>* call);
-  Status GetRemoteAddressSync(const GetRemoteAddressRequest* request,
-                              GetRemoteAddressResponse* response);
+  void GetRemoteWorkerAddressHandler(WorkerCall<
+      GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call);
+  Status GetRemoteWorkerAddressSync(
+      const GetRemoteWorkerAddressRequest* request,
+      GetRemoteWorkerAddressResponse* response);
 
   ::grpc::ServerCompletionQueue* cq_;
   grpc::UcxService::AsyncService ucx_service_;
@@ -64,7 +65,7 @@ class GrpcUcxService : public AsyncServiceInterface {
 
 // Create a GrpcUcxService, then assign it to a given handle.
 void SetNewUcxService(GrpcUcxService** handle, const WorkerEnv* worker_env,
-                        ::grpc::ServerBuilder* builder);
+                      ::grpc::ServerBuilder* builder);
 
 }  // namespace tensorflow
 
