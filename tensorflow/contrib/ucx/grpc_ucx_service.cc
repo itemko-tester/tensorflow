@@ -26,7 +26,7 @@ limitations under the License.
 namespace tensorflow {
 
 GrpcUcxService::GrpcUcxService(const WorkerEnv* worker_env,
-                                   ::grpc::ServerBuilder* builder)
+                               ::grpc::ServerBuilder* builder)
     : is_shutdown_(false), worker_env_(worker_env) {
   builder->RegisterService(&ucx_service_);
   cq_ = builder->AddCompletionQueue().release();
@@ -64,23 +64,22 @@ void GrpcUcxService::Shutdown() {
 // The implementation of the request handler for each RPC method
 // must ensure that it calls ENQUEUE_REQUEST() for that RPC method,
 // to keep accepting new requests.
-#define ENQUEUE_REQUEST(method, supports_cancel)                             \
-  do {                                                                       \
-    mutex_lock l(shutdown_mu_);                                              \
-    if (!is_shutdown_) {                                                     \
-      Call<GrpcUcxService, grpc::UcxService::AsyncService,               \
-           method##Request, method##Response>::                              \
-          EnqueueRequest(&ucx_service_, cq_,                               \
-                         &grpc::UcxService::AsyncService::Request##method, \
-                         &GrpcUcxService::method##Handler,                 \
-                         (supports_cancel));                                 \
-    }                                                                        \
+#define ENQUEUE_REQUEST(method, supports_cancel)                               \
+  do {                                                                         \
+    mutex_lock l(shutdown_mu_);                                                \
+    if (!is_shutdown_) {                                                       \
+      Call<GrpcUcxService, grpc::UcxService::AsyncService, method##Request,    \
+           method##Response>::                                                 \
+          EnqueueRequest(&ucx_service_, cq_,                                   \
+                         &grpc::UcxService::AsyncService::Request##method,     \
+                         &GrpcUcxService::method##Handler, (supports_cancel)); \
+    }                                                                          \
   } while (0)
 
 // This method blocks forever handling requests from the completion queue.
 void GrpcUcxService::HandleRPCsLoop() {
   for (int i = 0; i < 10; ++i) {
-    ENQUEUE_REQUEST(GetRemoteAddress, false);
+    ENQUEUE_REQUEST(GetRemoteWorkerAddress, false);
   }
 
   void* tag;
@@ -97,16 +96,16 @@ void GrpcUcxService::HandleRPCsLoop() {
   }
 }
 
-void GrpcUcxService::GetRemoteAddressHandler(
-    WorkerCall<GetRemoteAddressRequest, GetRemoteAddressResponse>* call) {
-  Status s = GetRemoteAddressSync(&call->request, &call->response);
+void GrpcUcxService::GetRemoteWorkerAddressHandler(WorkerCall<
+    GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call) {
+  Status s = GetRemoteWorkerAddressSync(&call->request, &call->response);
   call->SendResponse(ToGrpcStatus(s));
-  ENQUEUE_REQUEST(GetRemoteAddress, false);
+  ENQUEUE_REQUEST(GetRemoteWorkerAddress, false);
 }
 
 // Create a GrpcUcxService, then assign it to a given handle.
 void SetNewUcxService(GrpcUcxService** handle, const WorkerEnv* worker_env,
-                        ::grpc::ServerBuilder* builder) {
+                      ::grpc::ServerBuilder* builder) {
   *handle = new GrpcUcxService(worker_env, builder);
 }
 

@@ -70,6 +70,7 @@ cc_library(
     srcs = ["ucx_mgr.cc"],
     hdrs = ["ucx_mgr.h"],
     deps = [
+        ":ucx_channel",
         ":ucx_service_proto_cc",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:lib",
@@ -78,6 +79,23 @@ cc_library(
         "//tensorflow/core/distributed_runtime:worker_env",
         "//tensorflow/core/distributed_runtime/rpc:grpc_channel",
         "//tensorflow/core/distributed_runtime/rpc:grpc_worker_cache",
+    ],
+)
+
+tf_cuda_library(
+    name = "ucx_channel",
+    srcs = ["ucx_channel.cc"],
+    hdrs = ["ucx_channel.h"],
+    deps = [
+        "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:framework_internal",
+        "//tensorflow/core:gpu_runtime",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:lib_internal",
+        "//tensorflow/core/distributed_runtime:rendezvous_mgr_interface",
+        "//tensorflow/core/distributed_runtime:session_mgr",
+        "//tensorflow/core/distributed_runtime:worker_env",
     ],
 )
 
