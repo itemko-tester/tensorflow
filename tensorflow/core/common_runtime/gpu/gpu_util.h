@@ -88,6 +88,27 @@ class GPUUtil {
   // in local CPU RAM.
   static uint64 Checksum(const Tensor& tensor);
 
+
+  // Checksum with special cases.
+  static uint64_t SafeChecksum(Device* device,
+                               const DeviceContext* device_context,
+                               const Tensor& in);
+
+  // Validate expected vs actual and print an error message on failure
+  static void ValidateChecksum(uint64_t expected,
+                               uint64_t actual,
+                               const Tensor& in,
+                               const std::string& key,
+                               const std::string& msg);
+
+  // Compare 2 checksums of the same tensor within a time interval.
+  static void ChecksumTest(const Tensor& in,
+                           const std::string& key,
+                           const std::string& msg,
+                           uint32_t delay,
+                           Device* src_dev,
+                           const DeviceContext* device_context);
+
   static void CopyCPUTensorToGPU(const Tensor* cpu_tensor,
                                  const DeviceContext* device_context,
                                  Device* gpu_device, Tensor* gpu_tensor,
