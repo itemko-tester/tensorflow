@@ -1059,6 +1059,12 @@ Rendezvous::DoneCallback RdmaTensorBuffer::getRecvTensorCallback(
     AllocatorAttributes dst_alloc_attr;
     dst_alloc_attr.set_on_host(true);
 
+#if GOOGLE_CUDA
+    if (send_args.device_context == nullptr) {
+      GPUUtil::ChecksumTest(in, key, "RDMA", 10000, src_dev, send_args.device_context);
+    }
+#endif
+
     bool can_memcpy = DataTypeCanUseMemcpy(in.dtype());
     // string tensor needs to be serialized
     Tensor copy;

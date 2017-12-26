@@ -426,6 +426,67 @@ uint64 GPUUtil::Checksum(const Tensor& tensor) {
                 tensor.TotalBytes(), 0);
 }
 
+uint64_t GPUUtil::SafeChecksum(Device* device,
+                               const DeviceContext* device_context,
+                               const Tensor& in) {
+  uint64 checksum = 0;
+  if (DataTypeCanUseMemcpy(in.dtype())) {
+#if GOOGLE_CUDA
+    if (in.TotalBytes() == 0) {
+      return 0;
+    }
+    checksum = (device_context != nullptr)
+                   ? GPUUtil::Checksum(device, device_context, in)
+                   : GPUUtil::Checksum(in);
+#endif
+  } else {
+    string s = in.SummarizeValue(999999);
+    checksum = Hash64(s.c_str(), s.size(), 0);
+  }
+  return checksum;
+}
+
+void GPUUtil::ValidateChecksum(uint64_t expected,
+                               uint64_t actual,
+                               const Tensor& in,
+                               const std::string& key,
+                               const std::string& msg) {
+    if (expected != actual) {
+      // Checksum failed. There is one case where this is allowed - if the
+      // tensor is an AssignAdd of the global step. Since the data-validation
+      // always postpones the Tensor response in order to send a checksum message,
+      // it is possible that the global-step was updated while the response was
+      // still in queue. For other Tensors this can't happen because the queued
+      // response owns the Tensor buffer, but for global-step, the buffer is
+      // shared between all Tensors.
+      if ((in.TotalBytes() == 8) && (in.dtype() == DT_INT64)) {
+//        int64_t prev_val = *(int64_t*)DMAHelper::base(&in) - 1;
+//        actual = Hash64((const char*)&prev_val, 8, 0);
+        return;
+      }
+      if (expected != actual) {
+        LOG(FATAL)
+            << "[" << msg << "]: Checksum validation failed: " << key
+            << std::hex << " " << DataTypeString(in.dtype()) << " "
+            << in.shape().DebugString() << " (0x" << in.TotalBytes()
+            << " bytes): "
+            << " Expected 0x" << expected << ". Got 0x" << actual << ".";
+      }
+    }
+}
+
+void GPUUtil::ChecksumTest(const Tensor& in,
+                           const std::string& key,
+                           const std::string& msg,
+                           uint32_t delay,
+                           Device* src_dev,
+                           const DeviceContext* device_context) {
+  uint64_t checksum1 = SafeChecksum(src_dev, device_context, in);
+  usleep(delay);
+  uint64_t checksum2 = SafeChecksum(src_dev, device_context, in);
+  ValidateChecksum(checksum1, checksum2, in, key, msg + " (" + std::to_string(delay) + ")");
+}
+
 // static
 void GPUUtil::CopyGPUTensorToSameGPU(Device* gpu_device,
                                      const DeviceContext* device_context,

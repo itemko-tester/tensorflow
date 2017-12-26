@@ -340,11 +340,16 @@ void GrpcWorker::GrpcRecvTensorAsync(CallOptions* opts,
   opts->SetCancelCallback([this, step_id]() { AbortStep(step_id); });
   env_->rendezvous_mgr->RecvLocalAsync(
       step_id, parsed,
-      [opts, response, done, src_dev](const Status& status,
+      [opts, response, done, src_dev, key](const Status& status,
                                       const Rendezvous::Args& send_args,
                                       const Rendezvous::Args& recv_args,
                                       const Tensor& val, const bool is_dead) {
         opts->ClearCancelCallback();
+#if GOOGLE_CUDA
+    if (send_args.device_context == nullptr) {
+      GPUUtil::ChecksumTest(val, key, "GRPC1", 200000, src_dev, send_args.device_context);
+    }
+#endif
         if (status.ok()) {
           // DMA can only be used for Tensors that do not fall into
           // the following three odd edge cases: 1) a zero-size
