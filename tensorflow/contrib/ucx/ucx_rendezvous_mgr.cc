@@ -16,9 +16,8 @@ limitations under the License.
 //#ifdef TENSORFLOW_USE_VERBS
 
 #include "tensorflow/contrib/ucx/ucx_rendezvous_mgr.h"
-//#include "tensorflow/tensorflow/core/distributed_runtime/base_rendezvous_mgr.h"
-#include "tensorflow/core/framework/tensor.h"
 #include <unordered_set>
+#include "tensorflow/core/framework/tensor.h"
 //#include "tensorflow/contrib/verbs/verbs_util.h"
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
@@ -29,18 +28,16 @@ limitations under the License.
 #include "tensorflow/core/lib/strings/numbers.h"
 #include "tensorflow/core/lib/strings/str_util.h"
 
-
 namespace tensorflow {
 
-void UcxRemoteRendezvous::RecvFromRemoteAsync(const Rendezvous::ParsedKey& parsed,
-                                              const Rendezvous::Args& recv_args,
-                                              DoneCallback done) {
+void UcxRemoteRendezvous::RecvFromRemoteAsync(
+    const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& recv_args,
+    DoneCallback done) {
   Status s;
   // parse src_name and dst_name
   string src_name, dst_name, unused;
 
-  if (!DeviceNameUtils::SplitDeviceName(parsed.src_device,
-                                        &src_name,
+  if (!DeviceNameUtils::SplitDeviceName(parsed.src_device, &src_name,
                                         &unused)) {
     s = errors::Internal("Could not parse src name.");
   }
@@ -62,24 +59,22 @@ void UcxRemoteRendezvous::RecvFromRemoteAsync(const Rendezvous::ParsedKey& parse
   // Need to understand and implement the functions:
   //*************************************************************************************
 
-  //CHECK(dst_name.compare(ucx_mgr_->local_worker()) == 0);
+  // CHECK(dst_name.compare(ucx_mgr_->local_worker()) == 0);
 
-  //ecp_ep_h ep;
-  //ep = get_ep / ep is an input param
-  //UcxChannel* rc = rdma_mgr_->FindChannel(src_name);
+  // ecp_ep_h ep;
+  // ep = get_ep / ep is an input param
+  // UcxChannel* rc = rdma_mgr_->FindChannel(src_name);
 
-
-//  string key(std::move(parsed.FullKey().ToString()));
-//  const TensorMetaData* meta_data = nullptr;//GetTensorMetaData(key);
-//
-//  if (meta_data == nullptr) {
-//    RecvTensorMetaData();
-//  }
-//  else {
-//    RecvTensorContent();
-//  }
+  //  string key(std::move(parsed.FullKey().ToString()));
+  //  const TensorMetaData* meta_data = nullptr;//GetTensorMetaData(key);
+  //
+  //  if (meta_data == nullptr) {
+  //    RecvTensorMetaData();
+  //  }
+  //  else {
+  //    RecvTensorContent();
+  //  }
 }
-
 
 #if 0
 void UcxRemoteRendezvous::RecvMetaData(const Rendezvous::ParsedKey& parsed,
@@ -258,12 +253,13 @@ void UcxRemoteRendezvous::UcxRecv(void /*ucp_worker_h ucp_worker*/) {
 }
 #endif
 
-
-
-
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
+                                 const Rendezvous::Args& args,
+                                 const Tensor& val, const bool is_dead) {
+  return Status::OK();
+}
 
 #if 0
 
@@ -315,10 +311,14 @@ void UcxRendezvousMgr::SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
   }
 }
 
-
-
 #endif /*0*/
 
+UcxRendezvousMgr::UcxRendezvousMgr(const WorkerEnv* env)
+    : BaseRendezvousMgr(env) {}
+
+BaseRemoteRendezvous* UcxRendezvousMgr::Create(int64 step_id,
+                                               const WorkerEnv* worker_env) {
+  return new UcxRemoteRendezvous(worker_env, step_id, ucx_mgr_);
+}
+
 }  // end namespace tensorflow
-
-

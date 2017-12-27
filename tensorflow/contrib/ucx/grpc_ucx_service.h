@@ -18,7 +18,7 @@ limitations under the License.
 
 #ifndef TENSORFLOW_USE_UCX
 
-//#include "tensorflow/contrib/ucx/grpc_ucx_service_impl.h"
+#include "tensorflow/contrib/ucx/grpc_ucx_service_impl.h"
 #include "tensorflow/contrib/ucx/ucx_mgr.h"
 #include "tensorflow/contrib/ucx/ucx_service.pb.h"
 #include "tensorflow/core/distributed_runtime/rpc/async_service_interface.h"
@@ -45,8 +45,9 @@ class GrpcUcxService : public AsyncServiceInterface {
   template <class RequestMessage, class ResponseMessage>
   using WorkerCall = Call<GrpcUcxService, grpc::UcxService::AsyncService,
                           RequestMessage, ResponseMessage>;
-  void GetRemoteWorkerAddressHandler(WorkerCall<
-      GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call);
+  void GetRemoteWorkerAddressHandler(
+      WorkerCall<GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>*
+          call);
   Status GetRemoteWorkerAddressSync(
       const GetRemoteWorkerAddressRequest* request,
       GetRemoteWorkerAddressResponse* response);
@@ -57,7 +58,7 @@ class GrpcUcxService : public AsyncServiceInterface {
   bool is_shutdown_ GUARDED_BY(shutdown_mu_);
   ::grpc::Alarm* shutdown_alarm_;
   // not owned
-  ucxMgr* ucx_mgr_;
+  UcxMgr* ucx_mgr_;
   const WorkerEnv* const worker_env_;
 
   TF_DISALLOW_COPY_AND_ASSIGN(GrpcUcxService);

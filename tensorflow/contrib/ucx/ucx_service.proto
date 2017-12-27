@@ -26,19 +26,19 @@ option java_package = "org.tensorflow.contrib.ucx";
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-message UcxAddress {
+message WorkerAddress {
   uint64 addr_len = 1;
   bytes worker_addr = 2;
 }
 
 message GetRemoteWorkerAddressRequest {
   string host_name = 1;
-  UcxAddress addr = 2;
+  WorkerAddress addr = 2;
 }
 
 message GetRemoteWorkerAddressResponse {
   string host_name = 1;
-  UcxAddress addr = 2;
+  WorkerAddress addr = 2;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

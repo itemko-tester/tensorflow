@@ -96,11 +96,34 @@ void GrpcUcxService::HandleRPCsLoop() {
   }
 }
 
-void GrpcUcxService::GetRemoteWorkerAddressHandler(WorkerCall<
-    GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call) {
+void GrpcUcxService::GetRemoteWorkerAddressHandler(
+    WorkerCall<GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>*
+        call) {
   Status s = GetRemoteWorkerAddressSync(&call->request, &call->response);
   call->SendResponse(ToGrpcStatus(s));
   ENQUEUE_REQUEST(GetRemoteWorkerAddress, false);
+}
+
+// synchronous method
+Status GrpcUcxService::GetRemoteWorkerAddressSync(
+    const GetRemoteWorkerAddressRequest* request,
+    GetRemoteWorkerAddressResponse* response) {
+  // analyzing request
+  // the channel setting part is redundant.
+  const string remote_host_name = request->host_name();
+  UcxChannel* uc = ucx_mgr_->FindChannel(remote_host_name);
+  CHECK(uc);
+  UcxAddress ra(request->addr().worker_addr(),
+                (size_t)request->addr().addr_len());
+  uc->SetRemoteAddress(ra);
+  // setting up response
+  response->set_host_name(
+      worker_env_->session_mgr->LegacySession()->worker_name);
+  WorkerAddress* addr_info = response->mutable_addr();
+  addr_info->set_addr_len(uc->self_addr().get_size());
+  addr_info->set_worker_addr(uc->self_addr().get_addr(),
+                             uc->self_addr().get_size());
+  return Status::OK();
 }
 
 // Create a GrpcUcxService, then assign it to a given handle.

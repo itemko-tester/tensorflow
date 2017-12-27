@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_TENSORFLOW_CONTRIB_GRPC_UCX_CLIENT_H_
 #define THIRD_PARTY_TENSORFLOW_CONTRIB_GRPC_UCX_CLIENT_H_
 
+#include "tensorflow/contrib/ucx/grpc_ucx_service_impl.h"
 #include "tensorflow/contrib/ucx/ucx_service.pb.h"
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_util.h"
