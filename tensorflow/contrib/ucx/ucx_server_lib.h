@@ -20,6 +20,7 @@ limitations under the License.
 
 #include <memory>
 
+#include "tensorflow/contrib/ucx/grpc_ucx_service.h"
 #include "tensorflow/contrib/ucx/ucx_rendezvous_mgr.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_server_lib.h"
 
@@ -46,6 +47,17 @@ class UCXServer : public GrpcServer {
               RendezvousMgrCreationFunction rendezvous_mgr_func);
   Status ChannelCacheFactory(const ServerDef& server_def,
                              GrpcChannelCache** channel_cache);
+
+ private:
+  // Guards state transitions.
+  mutex mu_;
+
+  enum State { DISCONNECTED, CONNECTED };
+  State ucx_state_ GUARDED_BY(mu_);
+  UcxMgr* ucx_mgr_;
+  GrpcUcxService* ucx_service_ = nullptr;
+  std::unique_ptr<Thread> ucx_thread_ GUARDED_BY(mu_);
+  GrpcChannelCache* channel_cache_ = nullptr;
 };
 
 }  // namespace tensorflow

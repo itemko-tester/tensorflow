@@ -14,30 +14,38 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/contrib/ucx/ucx_channel.h"
+#include "tensorflow/core/platform/logging.h"
 
-UcxChannel::UcxChannel(ucp_address_t *local_addr, size_t local_addr_len,
-                       const std::string local_name,
-                       const std::string remote_name, ucp_worker_h ucp_worker)
-    : local_name_(local_name), remote_name_(remote_name) {
-  ucp_ep_params_t ep_params;
-  self_addr_ = UcxAddress(local_addr, local_addr_len);
+namespace tensorflow {
 
-  // TODO send the address to remote
-  // TODO recv the address from remote
-
-  ep_params.field_mask =
-      UCP_EP_PARAM_FIELD_REMOTE_ADDRESS | UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
-  ep_params.address = remote_addr_.get_addr();
-  // ep_params.err_mode        = err_handling_opt.ucp_err_mode;
-
-  ucp_ep_create(ucp_worker, &ep_params, &ep_);
-}
+UcxChannel::UcxChannel(const UcxAddress& ucx_addr, ucp_worker_h ucp_worker)
+    : self_addr_(ucx_addr), ucp_worker_(ucp_worker) {}
 
 UcxChannel::~UcxChannel() { ucp_ep_destroy(ep_); }
 
-/*
 void UcxChannel::SetRemoteAddress(const UcxAddress& ra) {
-  remote_addr_(ra);
-
+  remote_addr_ = ra;
+  remote_set_ = true;
 }
- */
+
+void UcxChannel::Connect() {
+  {
+    mutex_lock lock{mu_};
+    CHECK(remote_set_) << "remote channel is not set";
+  }
+  Connect(remote_addr_);
+}
+
+void UcxChannel::Connect(const UcxAddress& remoteAddr) {
+  ucp_ep_params_t ep_params;
+  ucs_status_t status;
+
+  ep_params.field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS;
+  ep_params.address = remoteAddr.get_addr();
+
+  status = ucp_ep_create(ucp_worker_, &ep_params, &ep_);
+  CHECK(status == UCS_OK) << "EP creation failed!!! status: " << status << "("
+                          << ucs_status_string(status) << ")";
+  LOG(INFO) << "UCX channel connected!";
+}
+}

@@ -23,8 +23,8 @@ limitations under the License.
 
 #include "grpc/support/alloc.h"
 
-#include "tensorflow/core/distributed_runtime/server_lib.h"
 #include "tensorflow/core/distributed_runtime/rpc/rpc_rendezvous_mgr.h"
+#include "tensorflow/core/distributed_runtime/server_lib.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/env.h"
 
@@ -33,39 +33,94 @@ namespace tensorflow {
 namespace {
 // static utility function
 RendezvousMgrInterface* NewUCXRendezvousMgr(const WorkerEnv* env) {
-  // Runtime check to disable the UCX path
-  const char* ucxenv = getenv("UCX_DISABLED");
-  if (ucxenv && ucxenv[0] == '1') {
-    LOG(INFO) << "UCX path disabled by environment variable\n";
-    return new RpcRendezvousMgr(env);
-  } else {
-    return new UcxRendezvousMgr(env);
-  }
+  return new UcxRendezvousMgr(env);
 }
 
 }  // namespace
 
 UCXServer::UCXServer(const ServerDef& server_def, Env* env)
-    : GrpcServer(server_def, env) {}
+    : GrpcServer(server_def, env), ucx_state_(DISCONNECTED) {}
 
 UCXServer::~UCXServer() {
   TF_CHECK_OK(Stop());
   TF_CHECK_OK(Join());
+  delete ucx_mgr_;
+  delete ucx_service_;
+  delete channel_cache_;
+}
+
+Status UCXServer::ChannelCacheFactory(const ServerDef& server_def,
+                                      GrpcChannelCache** channel_cache) {
+  string name_prefix =
+      strings::StrCat("/job:", server_def.job_name(), "/replica:0", "/task:",
+                      server_def.task_index());
+
+  GrpcChannelSpec channel_spec;
+  TF_RETURN_IF_ERROR(ParseChannelSpec(server_def, &channel_spec));
+
+  *channel_cache =
+      NewGrpcChannelCache(channel_spec, GetChannelCreationFunction());
+
+  const string host_port = (*channel_cache)->TranslateTask(name_prefix);
+  int requested_port;
+
+  if (!strings::safe_strto32(str_util::Split(host_port, ':')[1],
+                             &requested_port)) {
+    return errors::Internal("Could not parse port for local server from \"",
+                            (*channel_cache)->TranslateTask(name_prefix),
+                            "\".");
+  }
+  if (requested_port != bound_port()) {
+    return errors::InvalidArgument("Requested port ", requested_port,
+                                   " differs from expected port ",
+                                   bound_port());
+  }
+
+  return Status::OK();
 }
 
 Status UCXServer::Init(ServiceInitFunction service_func,
                        RendezvousMgrCreationFunction rendezvous_mgr_func) {
   Status s = GrpcServer::Init(service_func, rendezvous_mgr_func);
+  {
+    mutex_lock l(mu_);
+    CHECK_EQ(ucx_state_, DISCONNECTED);
+    CHECK(ChannelCacheFactory(server_def(), &channel_cache_).ok());
+    ucx_mgr_ = new UcxMgr(worker_env(), channel_cache_);
+    // set ucx_mgr for ucx_service and ucx_rendezvous_mgr
+    ucx_service_->SetUcxMgr(ucx_mgr_);
+    dynamic_cast<UcxRendezvousMgr*>(worker_env()->rendezvous_mgr)
+        ->SetUcxMgr(ucx_mgr_);
+  }
   return s;
 }
 
 Status UCXServer::Start() {
   Status s = GrpcServer::Start();
+  {
+    mutex_lock l(mu_);
+    if (ucx_state_ == DISCONNECTED) {
+      // ucx_thread needs to be initiated
+      // before ucx_mgr sets up the ucx channels.
+      ucx_thread_.reset(worker_env()->env->StartThread(
+          ThreadOptions(), "TF_ucx_service",
+          [this] { ucx_service_->HandleRPCsLoop(); }));
+      ucx_mgr_->SetupChannels();
+      ucx_state_ = CONNECTED;
+    }
+  }
   return s;
 }
 
 Status UCXServer::Join() {
   Status s = GrpcServer::Join();
+  {
+    mutex_lock l(mu_);
+    if (ucx_state_ == CONNECTED) {
+      ucx_state_ = DISCONNECTED;
+      ucx_thread_.reset();
+    }
+  }
   return s;
 }
 
@@ -73,7 +128,10 @@ Status UCXServer::Join() {
 Status UCXServer::Create(const ServerDef& server_def, Env* env,
                          std::unique_ptr<ServerInterface>* out_server) {
   std::unique_ptr<UCXServer> ret(new UCXServer(server_def, Env::Default()));
-  ServiceInitFunction service_func = nullptr;
+  ServiceInitFunction service_func = [&ret](const WorkerEnv* worker_env,
+                                            ::grpc::ServerBuilder* builder) {
+    return SetNewUcxService(&ret->ucx_service_, worker_env, builder);
+  };
   TF_RETURN_IF_ERROR(ret->Init(service_func, NewUCXRendezvousMgr));
   *out_server = std::move(ret);
   return Status::OK();

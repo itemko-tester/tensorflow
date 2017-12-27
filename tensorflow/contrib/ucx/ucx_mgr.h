@@ -20,27 +20,28 @@ limitations under the License.
 
 #include <unordered_map>
 
+#include "tensorflow/contrib/ucx/ucx_channel.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
-#include "tensorflow/contrib/ucx/ucx_channel.h"
 
 namespace tensorflow {
 
 class UcxMgr {
-
  public:
   explicit UcxMgr(const WorkerEnv* const worker_env,
                   GrpcChannelCache* const channel_cache);
   ~UcxMgr();
+  void SetupChannels();
+  UcxChannel* FindChannel(const string& key);
 
  private:
   string local_worker_;
   size_t num_remote_workers_;
   ucp_context_h ucp_context_;
   ucp_worker_h ucp_worker_;
-  ucp_address_t* local_addr_;
-  size_t local_addr_len_;
-  const WorkerEnv* const worker_env_;
+  UcxAddress ucx_addr_;
+  const WorkerEnv* worker_env_;
+  const GrpcChannelCache* channel_cache_;
   typedef std::unordered_map<string, UcxChannel*> ChannelTable;
   ChannelTable channel_table_;
   TF_DISALLOW_COPY_AND_ASSIGN(UcxMgr);
