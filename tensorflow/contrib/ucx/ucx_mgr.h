@@ -41,7 +41,7 @@ class UcxMgr {
   ucp_worker_h ucp_worker_;
   UcxAddress ucx_addr_;
   const WorkerEnv* worker_env_;
-  const GrpcChannelCache* channel_cache_;
+  GrpcChannelCache* const channel_cache_;
   typedef std::unordered_map<string, UcxChannel*> ChannelTable;
   ChannelTable channel_table_;
   TF_DISALLOW_COPY_AND_ASSIGN(UcxMgr);
