@@ -23,8 +23,19 @@ limitations under the License.
 #include "tensorflow/contrib/ucx/ucx_channel.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
+#include "tensorflow/core/lib/core/threadpool.h"
 
 namespace tensorflow {
+class UcxAdapter {
+ public:
+  UcxAdapter(const ucp_worker_h ucp_worker) : ucp_worker_(ucp_worker) {}
+  ~UcxAdapter();
+  void UcxProgress();
+
+ private:
+  const ucp_worker_h ucp_worker_;
+  std::unique_ptr<Thread> progress_thread_;
+};
 
 class UcxMgr {
  public:
@@ -33,6 +44,10 @@ class UcxMgr {
   ~UcxMgr();
   void SetupChannels();
   UcxChannel* FindChannel(const string& key);
+
+  const ucp_worker_h& GetWorker() const { return ucp_worker_; }
+  const string& LocalWorker() const { return local_worker_; }
+  UcxAdapter* GetAdapter() { return ucx_adapter_; }
 
  private:
   string local_worker_;
@@ -44,6 +59,7 @@ class UcxMgr {
   GrpcChannelCache* const channel_cache_;
   typedef std::unordered_map<string, UcxChannel*> ChannelTable;
   ChannelTable channel_table_;
+  UcxAdapter* ucx_adapter_;
   TF_DISALLOW_COPY_AND_ASSIGN(UcxMgr);
 };
 

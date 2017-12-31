@@ -20,6 +20,16 @@ option java_outer_classname = "UcxServiceProtos";
 option java_multiple_files = true;
 option java_package = "org.tensorflow.contrib.ucx";
 
+import "tensorflow/core/framework/types.proto";
+import "tensorflow/core/framework/tensor_shape.proto";
+
+message UcxTensorMetaData {
+  bool is_dead = 1;
+  DataType dtype = 2;
+  TensorShapeProto tensor_shape = 3;
+  uint32 proto_size = 4;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // GRPC Helper messages used to exchange UCX information.

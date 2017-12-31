@@ -16,9 +16,9 @@ limitations under the License.
 //#ifdef TENSORFLOW_USE_VERBS
 
 #include "tensorflow/contrib/ucx/ucx_rendezvous_mgr.h"
-#include <unordered_set>
+#include "tensorflow/contrib/ucx/ucx_util.h"
 #include "tensorflow/core/framework/tensor.h"
-//#include "tensorflow/contrib/verbs/verbs_util.h"
+#include <unordered_set>
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
 #include "tensorflow/core/common_runtime/dma_helper.h"
@@ -31,234 +31,155 @@ limitations under the License.
 namespace tensorflow {
 
 void UcxRemoteRendezvous::RecvFromRemoteAsync(
-    const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& recv_args,
+    const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& args,
     DoneCallback done) {
   Status s;
-  // parse src_name and dst_name
-  string src_name, dst_name, unused;
-
-  if (!DeviceNameUtils::SplitDeviceName(parsed.src_device, &src_name,
-                                        &unused)) {
-    s = errors::Internal("Could not parse src name.");
-  }
-  if (!s.ok()) {
-    done(s, Args(), recv_args, Tensor{}, false);
-    return;
-  }
-  if (!DeviceNameUtils::SplitDeviceName(parsed.dst_device, &dst_name,
-                                        &unused)) {
-    s = errors::Internal("Could not parse dst name.");
-  }
-
-  if (!s.ok()) {
-    done(s, Args(), recv_args, Tensor{}, false);
-    return;
-  }
-
-  //*************************************************************************************
-  // Need to understand and implement the functions:
-  //*************************************************************************************
-
-  // CHECK(dst_name.compare(ucx_mgr_->local_worker()) == 0);
-
-  // ecp_ep_h ep;
-  // ep = get_ep / ep is an input param
-  // UcxChannel* rc = rdma_mgr_->FindChannel(src_name);
-
-  //  string key(std::move(parsed.FullKey().ToString()));
-  //  const TensorMetaData* meta_data = nullptr;//GetTensorMetaData(key);
-  //
-  //  if (meta_data == nullptr) {
-  //    RecvTensorMetaData();
-  //  }
-  //  else {
-  //    RecvTensorContent();
-  //  }
-}
-
-#if 0
-void UcxRemoteRendezvous::RecvMetaData(const Rendezvous::ParsedKey& parsed,
-                                       const Rendezvous::Args& recv_args,
-                                       const TensorMetaData* meta_data,
-                                       Tensor val,
-                                       const std::string& tensor_name_meta_data,
-                                       std::function<void()> RecvMetaDataCallback,
-                                       DoneCallback done) {
-  //TODO: implement UCX receive function
-  UcxRecv();
-  RecvMetaDataCallback(parsed,
-                       recv_args,
-                       meta_data,
-                       val,
-                       done);
-}
-#endif
-
-#if 0
-void RecvTensorContent(const Rendezvous::ParsedKey& parsed,
-                       const Rendezvous::Args& recv_args,
-                       const TensorMetaData* meta_data,
-                       DoneCallback done
-                       /*TODO params*/) {
-  Status s;
-  Tensor *proxy_tensor = nullptr;
-  size_t tensor_size = 0;
-  void* rdma_addr = nullptr;
-  ibv_mr* mr = nullptr;
   Device* dst_dev;
-  Allocator* rdma_proxy_allocator = nullptr;
+  ucp_worker_h ucp_worker = ucx_mgr_->GetWorker();
 
   s = env_->device_mgr->LookupDevice(parsed.dst_device, &dst_dev);
   if (!s.ok()) {
-    done(s, Args(), recv_args, Tensor(), true);
+    done(s, Args(), args, Tensor(), true);
     return;
   }
 
-  Tensor* result_tensor = new Tensor(dst_dev->GetAllocator(recv_args.alloc_attrs),
-                                    meta_data->data_type_,
-                                    meta_data->tensor_shape_);
-
-  bool can_memcpy = DataTypeCanUseMemcpy(meta_data->data_type_);
-  if (can_memcpy)
-  {
-    if (tensor_size > 0){
-      dest_addr = DMAHelper::base(result_tensor);
-      //TODO: implement FindMemoryRegion for ucx
-      mr = UcxMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, tensor_size);
-      if (mr == nullptr) {
-        // Can't RDMA directly to result. Use a proxy.
-        rdma_proxy_allocator = ProcessState::singleton()->GetCUDAHostAllocator(0);
-        proxy_tensor = new Tensor(rdma_proxy_allocator,
-                                  meta_data->data_type_,
-                                  meta_data->tensor_shape_);
-        rdma_addr = rdma_proxy_allocator->Value();
-      }
-    }
-    else {
-      rdma_addr = 0;
-      done(s, Args(), recv_args, Tensor(), true);
-      return;
-    }
-  }
-  else {
-    rdma_addr = ProcessState::singleton()->GetCPUAllocator(0)->AllocateRaw(32, /*TODO: add:*/meta_data->proto_size);
-    mr = RdmaMemoryMgr::Singleton().FindMemoryRegion(rdma_addr, /*TODO: add:*/meta_data->proto_size);
-   }
-
-  //TODO: implement UCX receive function
-  UcxRecv();
-
-}
-#endif
-
-#if 0
-void UcxRemoteRendezvous::RecvContentCallback (const Rendezvous::Args& recv_args,
-                                               const Rendezvous::ParsedKey& parsed,
-                                               bool can_memcpy,
-                                               void* rdma_addr,
-                                               request,
-                                               Tensor* result_tensor,
-                                               Tensor* proxy_tensor,
-                                               Device* dst_dev,
-                                               DoneCallback done) {
-  Status s;
-  Tensor val;
-
-  if (proxy_tensor != nullptr) {
-    num_proxy_bytes += result_tensor->TotalBytes();
-    if (++num_proxies % 1000 == 0) {
-      LOG(INFO) << "Number of proxies: " << num_proxies << " (" << num_proxy_bytes << " Bytes).";
-    }
-
-    GPUUtil::CopyCPUTensorToGPU(
-        proxy_tensor, recv_args.device_context, dst_dev, result_tensor,
-        [this, proxy_tensor, result_tensor, request, recv_args, done, rc](const Status& s) {
-          CHECK(s.ok()) << "copy tensor to gpu sync";
-          Tensor val;
-          val = std::move(*result_tensor);
-          delete result_tensor;
-          delete proxy_tensor;
-          done(s, Args(), recv_args, val, false);
-        });
-    return;
-  }
-
-  if (can_memcpy)
-  {
-    val = std::move(*result_tensor);
-    delete result_tensor;
-  }
-  else
-  {
-    int proto_size = *(int*)rdma_addr;
-    TensorProto proto;
-    CHECK(ParseProtoUnlimited(&proto, rdma_addr + 4, proto_size)) << "fail to parse proto from array";
-    s = dst_dev->MakeTensorFromProto(proto, recv_args.alloc_attrs, &val);
-  }
-  done(s, Args(), recv_args, val, false);
+  UcxRecv(parsed, ucp_worker, args, dst_dev, done);
 }
 
+void UcxRemoteRendezvous::UcxTensorRequest::RecvTensorMetaData() {
+  void* request;
+  int recv_data_size = 0;
+  UcxTensorMetaData* tensor_proto =
+      reinterpret_cast<UcxTensorMetaData*>(meta_data_msg_);
+  meta_data_ = new UcxMetaData(*tensor_proto);
+  bool can_memcpy = DataTypeCanUseMemcpy(meta_data_->dtype_);
 
+  string key(std::move(parsed_.FullKey().ToString()));
+  ucp_tag_t tag = UcxUtil::CalcTag(key, step_id_, 1);
 
-void UcxRemoteRendezvous::RecvMetaDataCallback(const Rendezvous::ParsedKey& parsed,
-                                               const Rendezvous::Args& recv_args,
-                                               const TensorMetaData* meta_data,
-                                               Tensor val,
-                                               DoneCallback done) {
-  string key(std::move(parsed.FullKey().ToString()));
-  SetTensorMetaData(key, val.dtype(), val.shape);
-  RecvTensorContent(parsed, recv_args, meta_data, done);
-}
-
-#endif /*0*/
-
-#if 0
-
-void UcxRemoteRendezvous::UcxRecv(void /*ucp_worker_h ucp_worker*/) {
-  ucp_tag_recv_info_t info_tag;
-  ucp_tag_message_h msg_tag;
-  ucs_status_t status;
-  struct msg *msg = 0;
-  struct ucx_context *request = 0;
-  size_t msg_len = 0;
-
-  printf("UCX receive\n");
-
-  do {
-      /* Progressing before probe to update the state */
-      ucp_worker_progress(ucp_worker);
-
-      /* Probing incoming events in non-block mode */
-      msg_tag = ucp_tag_probe_nb(ucp_worker, 0x1337a880u/*tag*/, -1/*tag_mask*/, 1, &info_tag);
-  } while (msg_tag == NULL);
-
-  msg = malloc(info_tag.length);
-//  CHKERR_JUMP(!msg, "allocate memory\n", err);
-  request = ucp_tag_msg_recv_nb(ucp_worker, msg, info_tag.length,
-                                ucp_dt_make_contig(1), msg_tag, NULL/*recv_handle*/);
-
-
-  if (UCS_PTR_IS_ERR(request)) {
-      fprintf(stderr, "unable to receive UCX data message (%u)\n",
-              UCS_PTR_STATUS(request));
-      free(msg);
-      goto err_ep;
+  if (meta_data_->is_dead_) {
+    // TODO: handle in the future
+  }
+  // String case (can't DMA)
+  if (can_memcpy) {
+    Tensor* result_tensor =
+        new Tensor(dst_dev_->GetAllocator(recv_args_.alloc_attrs),
+                   meta_data_->dtype_, meta_data_->tensor_shape_);
+    // TODO: in the future handle GPU copy
+    data_msg_ = DMAHelper::base(result_tensor);
+    recv_data_size = result_tensor->TotalBytes();
   } else {
-      wait(ucp_worker, request);
-      request->completed = 0;
-      ucp_request_release(request);
-      printf("UCX data message was received\n");
+    data_msg_ = malloc(meta_data_->proto_size_);
+    CHECK(data_msg_ != nullptr) << ": allocate memory failed";
+    recv_data_size = meta_data_->proto_size_;
   }
-
+  request = ucp_tag_recv_nb(ucp_worker_, data_msg_, recv_data_size,
+                            ucp_dt_make_contig(1), tag, -1, &RecvHandler);
+  if (UCS_PTR_IS_ERR(request)) {
+    VLOG(ERROR) << "unable to receive UCX data message"
+                << UCS_PTR_STATUS(request);
+    if (!can_memcpy) {
+      free(data_msg_);
+    }
+  }
+  ucp_request_release(request);
 }
-#endif
+
+void UcxRemoteRendezvous::UcxTensorRequest::RecvTensorContent() {
+  bool can_memcpy = DataTypeCanUseMemcpy(meta_data_->dtype_);
+  // String
+  if (can_memcpy) {
+    // TODO: CPU to GPU copy --> in the future
+    Done(Status::OK());
+  } else {
+    TensorProto proto;
+    CHECK(ParseProtoUnlimited(&proto, data_msg_, meta_data_->proto_size_))
+        << "fail to parse proto from array";
+    free(data_msg_);
+    Status s = dst_dev_->MakeTensorFromProto(proto, recv_args_.alloc_attrs,
+                                             result_tensor_);
+    Done(s);
+  }
+}
+
+void UcxRemoteRendezvous::UcxTensorRequest::Done(const Status& s) {
+  Tensor val = std::move(*result_tensor_);
+  Rendezvous::Args recv_args = std::move(recv_args_);
+  bool is_dead = meta_data_->is_dead_;
+  DoneCallback done = done_;
+  // Should be called last:
+  delete (this);
+  done(s, Rendezvous::Args(), recv_args, val, is_dead);
+}
+
+void UcxRemoteRendezvous::RecvHandler(void* request, ucs_status_t status,
+                                      ucp_tag_recv_info_t* info) {
+  UcxTensorRequest* tensor_request =
+      reinterpret_cast<UcxTensorRequest*>(request);
+  VLOG(INFO) << "[0x" << (unsigned int)pthread_self() << "]"
+             << "RecvHandler called with status" << status
+             << ucs_status_string(status) << ",length" << info->length;
+  tensor_request->RecvTensorContent();
+}
+
+void UcxRemoteRendezvous::RecvMetaDataHandler(void* request_meta_data,
+                                              ucs_status_t status,
+                                              ucp_tag_recv_info_t* info) {
+  UcxTensorRequest* request =
+      reinterpret_cast<UcxTensorRequest*>(request_meta_data);
+  VLOG(INFO) << "[0x" << (unsigned int)pthread_self() << "]"
+             << "RecvMetaDataHandler called with status" << status
+             << ucs_status_string(status) << ",length" << info->length;
+  request->RecvTensorMetaData();
+}
+
+void UcxRemoteRendezvous::UcxRecv(const Rendezvous::ParsedKey& parsed,
+                                  ucp_worker_h ucp_worker,
+                                  const Rendezvous::Args& recv_args,
+                                  Device* dst_dev, DoneCallback done) {
+  UcxTensorRequest* context = new UcxTensorRequest(
+      ucp_worker, parsed, recv_args, step_id_, dst_dev, done);
+
+  string key(std::move(parsed.FullKey().ToString()));
+  ucp_tag_t tag = UcxUtil::CalcTag(key, step_id_, 0);
+
+  context = (UcxTensorRequest*)ucp_tag_recv_nb(
+      ucp_worker, context->GetMetaDataMsg(), UCX_RENDEZVOUS_MGR_META_DATA_SIZE,
+      ucp_dt_make_contig(1), tag, -1, RecvMetaDataHandler);
+  if (UCS_PTR_IS_ERR(context)) {
+    VLOG(ERROR) << "unable to receive UCX meta data message"
+                << UCS_PTR_STATUS(context);
+    delete (context);
+  }
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
-                                 const Rendezvous::Args& args,
-                                 const Tensor& val, const bool is_dead) {
-  return Status::OK();
+void UcxRemoteRendezvous::SendHandle(void* request, ucs_status_t status) {
+  // struct ucx_context* context = (struct ucx_context*)request;
+  // context->completed = 1;
+
+  VLOG(INFO) << "[0x" << (unsigned int)pthread_self() << "]"
+             << "send handler called with status" << status
+             << ucs_status_string(status);
+}
+
+void UcxRemoteRendezvous::UcxSend(ucp_worker_h ucp_worker, ucp_ep_h ep,
+                                  uint64_t* msg, size_t msg_len,
+                                  ucp_tag_t tag) {
+  struct ucx_context* request = 0;
+
+  request = (struct ucx_context*)ucp_tag_send_nb(
+      ep, msg, msg_len, ucp_dt_make_contig(1), tag, &SendHandle);
+  if (UCS_PTR_IS_ERR(request)) {
+    VLOG(ERROR) << "unable to send UCX data message" << UCS_PTR_STATUS(request);
+    free(msg);
+  } else if (UCS_PTR_STATUS(request) != UCS_OK) {
+    VLOG(INFO) << "UCX data message was scheduled for send\n";
+    // WaitForComplete(ucp_worker, request);
+    // request->completed = 0;
+    ucp_request_release(request);
+  }
 }
 
 #if 0
@@ -312,13 +233,5 @@ void UcxRendezvousMgr::SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
 }
 
 #endif /*0*/
-
-UcxRendezvousMgr::UcxRendezvousMgr(const WorkerEnv* env)
-    : BaseRendezvousMgr(env) {}
-
-BaseRemoteRendezvous* UcxRendezvousMgr::Create(int64 step_id,
-                                               const WorkerEnv* worker_env) {
-  return new UcxRemoteRendezvous(worker_env, step_id, ucx_mgr_);
-}
 
 }  // end namespace tensorflow

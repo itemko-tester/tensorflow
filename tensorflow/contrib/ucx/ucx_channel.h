@@ -63,7 +63,7 @@ class UcxAddress {
   size_t get_size() const { return addr_len_; }
 
   std::ostream& print(std::ostream& out) const {
-    for (int i = 0; i < addr_len_; i++) {
+    for (uint i = 0; i < addr_len_; i++) {
       out << std::hex << std::setw(2) << std::setfill('0')
           << (int)((unsigned char*)worker_addr_)[i] << " ";
       if (!i % 64) {
