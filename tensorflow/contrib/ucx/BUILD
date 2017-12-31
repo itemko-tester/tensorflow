@@ -42,6 +42,7 @@ tf_proto_library_cc(
     srcs = ["ucx_service.proto"],
     has_services = 1,
     cc_api_version = 2,
+    protodeps = ["//tensorflow/core:protos_all"],
     visibility = [
         "//tensorflow:__subpackages__",
     ],
@@ -100,11 +101,22 @@ cc_library(
     }),
     deps = [
         ":ucx_mgr",
+        ":ucx_util",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:gpu_runtime",
         "//tensorflow/core:lib",
         "//tensorflow/core/distributed_runtime:base_rendezvous_mgr",
         "//tensorflow/core/distributed_runtime:worker_env",
+    ],
+)
+
+cc_library(
+    name = "ucx_util",
+    srcs = ["ucx_util.cc"],
+    hdrs = ["ucx_util.h"],
+    deps = [
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
     ],
 )
 
@@ -152,6 +164,7 @@ cc_library(
     deps = [
         ":ucx_mgr",
         ":ucx_rendezvous_mgr",
+        ":ucx_util",
         ":grpc_ucx_service",
         "//tensorflow/core:lib",
         "//tensorflow/core/distributed_runtime:server_lib",

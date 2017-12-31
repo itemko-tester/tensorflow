@@ -52,7 +52,10 @@ class UCXServer : public GrpcServer {
   // Guards state transitions.
   mutex mu_;
 
-  enum State { DISCONNECTED, CONNECTED };
+  enum State {
+    DISCONNECTED,
+    CONNECTED
+  };
   State ucx_state_ GUARDED_BY(mu_);
   UcxMgr* ucx_mgr_;
   GrpcUcxService* ucx_service_ = nullptr;

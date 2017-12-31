@@ -34,6 +34,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
   ucs_status_t status;
   ucp_address_t* local_addr_;
   size_t local_addr_len_;
+
   /* UCP initialization */
   status = ucp_config_read(NULL, NULL, &config);
   CHECK(status == UCS_OK) << "ucp_config_read failed with status: " << status;
@@ -70,6 +71,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
           {workers[i], new UcxChannel(ucx_addr_, ucp_worker_)});
     }
   }
+  ucx_adapter_ = new UcxAdapter(ucp_worker_);
 }
 
 // Find a channel via the given name.
@@ -120,6 +122,16 @@ UcxMgr::~UcxMgr() {
   ucp_worker_release_address(ucp_worker_, ucx_addr_.get_addr());
   ucp_worker_destroy(ucp_worker_);
   ucp_cleanup(ucp_context_);
+  delete ucx_adapter_;
+}
+
+UcxAdapter::~UcxAdapter() { progress_thread_.reset(); }
+
+void UcxAdapter::UcxProgress() {
+  progress_thread_.reset(Env::Default()->StartThread(
+      ThreadOptions(), "UcxAdapterProgressThread",
+      [this] { ucp_worker_progress(ucp_worker_); }));
+  VLOG(2) << "Start UcxAdapter: ";
 }
 
 }  // end namespace tensorflow

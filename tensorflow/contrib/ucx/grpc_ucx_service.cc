@@ -96,9 +96,8 @@ void GrpcUcxService::HandleRPCsLoop() {
   }
 }
 
-void GrpcUcxService::GetRemoteWorkerAddressHandler(
-    WorkerCall<GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>*
-        call) {
+void GrpcUcxService::GetRemoteWorkerAddressHandler(WorkerCall<
+    GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call) {
   Status s = GetRemoteWorkerAddressSync(&call->request, &call->response);
   call->SendResponse(ToGrpcStatus(s));
   ENQUEUE_REQUEST(GetRemoteWorkerAddress, false);

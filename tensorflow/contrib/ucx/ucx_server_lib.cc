@@ -106,6 +106,7 @@ Status UCXServer::Start() {
           ThreadOptions(), "TF_ucx_service",
           [this] { ucx_service_->HandleRPCsLoop(); }));
       ucx_mgr_->SetupChannels();
+      ucx_mgr_->GetAdapter()->UcxProgress();
       ucx_state_ = CONNECTED;
     }
   }
