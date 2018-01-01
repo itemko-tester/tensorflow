@@ -182,12 +182,15 @@ void UcxRemoteRendezvous::UcxSend(ucp_worker_h ucp_worker, ucp_ep_h ep,
   }
 }
 
-#if 0
+
 
 Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
                                   const Rendezvous::Args& args,
-                                  const Tensor& val, const bool is_dead) {
+                          const Tensor& val, const bool is_dead) {
+return Status::OK();
+}
 
+#if 0
   VLOG(1) << "UcxRemoteRendezvous Send " << this << " " << parsed.FullKey();
 //  CHECK(is_initialized()) << "Send called when uninitialized.";
 //  Status s = ValidateDevices(parsed, false /*!is_src*/);
@@ -233,5 +236,13 @@ void UcxRendezvousMgr::SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
 }
 
 #endif /*0*/
+
+UcxRendezvousMgr::UcxRendezvousMgr(const WorkerEnv* env)
+    : BaseRendezvousMgr(env) {}
+
+BaseRemoteRendezvous* UcxRendezvousMgr::Create(int64 step_id,
+                                               const WorkerEnv* worker_env) {
+  return new UcxRemoteRendezvous(worker_env, step_id, ucx_mgr_);
+}
 
 }  // end namespace tensorflow
