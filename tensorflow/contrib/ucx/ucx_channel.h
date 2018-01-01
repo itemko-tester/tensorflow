@@ -98,6 +98,7 @@ class UcxChannel {
   void Connect();
   void Recv();
   void SetRemoteAddress(const UcxAddress& ra);
+  const ucp_ep_h GetEp() const { return ep_; }
 
  protected:
   UcxAddress self_addr_;
