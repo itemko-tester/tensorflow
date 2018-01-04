@@ -43,6 +43,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
                           UCP_PARAM_FIELD_REQUEST_SIZE |
                           UCP_PARAM_FIELD_REQUEST_INIT;
   ucp_params.features = UCP_FEATURE_TAG;
+  ucp_params.request_init = nullptr;
 
   status = ucp_init(&ucp_params, config, &ucp_context_);
   CHECK(status == UCS_OK) << "ucp_init failed with status: " << status;
@@ -112,7 +113,7 @@ void UcxMgr::SetupChannels() {
       uc->SetRemoteAddress(ra);
       uc->Connect();
     } else {
-      LOG(ERROR) << s.error_message();
+      LOG(ERROR) << "GetRemoteWorkerAddress failed with error: " << s.error_message();
     }
     delete client;
   }
