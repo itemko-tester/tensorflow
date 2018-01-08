@@ -45,8 +45,9 @@ class GrpcUcxService : public AsyncServiceInterface {
   template <class RequestMessage, class ResponseMessage>
   using WorkerCall = Call<GrpcUcxService, grpc::UcxService::AsyncService,
                           RequestMessage, ResponseMessage>;
-  void GetRemoteWorkerAddressHandler(WorkerCall<
-      GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call);
+  void GetRemoteWorkerAddressHandler(
+      WorkerCall<GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>*
+          call);
   Status GetRemoteWorkerAddressSync(
       const GetRemoteWorkerAddressRequest* request,
       GetRemoteWorkerAddressResponse* response);
