@@ -25,6 +25,11 @@ limitations under the License.
 
 namespace tensorflow {
 
+static void RequestInit(void* request) {
+  void** ctx = (void**)request;
+  *ctx = nullptr;
+}
+
 UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
                GrpcChannelCache* const channel_cache)
     : worker_env_(worker_env), channel_cache_(channel_cache) {
@@ -43,7 +48,8 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
                           UCP_PARAM_FIELD_REQUEST_SIZE |
                           UCP_PARAM_FIELD_REQUEST_INIT;
   ucp_params.features = UCP_FEATURE_TAG;
-  ucp_params.request_init = nullptr;
+  ucp_params.request_size = sizeof(void*);
+  ucp_params.request_init = RequestInit;
 
   status = ucp_init(&ucp_params, config, &ucp_context_);
   CHECK(status == UCS_OK) << "ucp_init failed with status: " << status;
@@ -81,6 +87,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
 // Returns
 //   channel object that is connected to the named peer.
 UcxChannel* UcxMgr::FindChannel(const string& name) {
+  VLOG(INFO) << __FUNCTION__ << " name " << name;
   ChannelTable::iterator iter = channel_table_.find(name);
   CHECK(iter != channel_table_.end());
   return iter->second;
@@ -113,7 +120,8 @@ void UcxMgr::SetupChannels() {
       uc->SetRemoteAddress(ra);
       uc->Connect();
     } else {
-      LOG(ERROR) << "GetRemoteWorkerAddress failed with error: " << s.error_message();
+      LOG(ERROR) << "GetRemoteWorkerAddress failed with error: "
+                 << s.error_message();
     }
     delete client;
   }
@@ -130,9 +138,11 @@ UcxAdapter::~UcxAdapter() { progress_thread_.reset(); }
 
 void UcxAdapter::UcxProgress() {
   progress_thread_.reset(Env::Default()->StartThread(
-      ThreadOptions(), "UcxAdapterProgressThread",
-      [this] { ucp_worker_progress(ucp_worker_); }));
-  VLOG(2) << "Start UcxAdapter: ";
+      ThreadOptions(), "UcxAdapterProgressThread", [this] {
+        while (1) {
+          ucp_worker_progress(ucp_worker_);
+        }
+      }));
 }
 
 }  // end namespace tensorflow

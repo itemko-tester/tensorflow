@@ -16,13 +16,13 @@ limitations under the License.
 #ifndef THIRD_PARTY_TENSORFLOW_CONTRIB_UCX_UCX_RENDEZVOUS_MGR_H_
 #define THIRD_PARTY_TENSORFLOW_CONTRIB_UCX_UCX_RENDEZVOUS_MGR_H_
 
+#include <ucp/api/ucp.h>
+#include "tensorflow/contrib/ucx/ucx_mgr.h"
+#include "tensorflow/contrib/ucx/ucx_service.pb.h"
 #include "tensorflow/core/distributed_runtime/base_rendezvous_mgr.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
-#include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/framework/types.h"
-#include "tensorflow/contrib/ucx/ucx_mgr.h"
-#include <ucp/api/ucp.h>
-#include "tensorflow/contrib/ucx/ucx_service.pb.h"
+#include "tensorflow/core/platform/macros.h"
 
 #define UCX_RENDEZVOUS_MGR_META_DATA_SIZE (256)
 
@@ -38,28 +38,10 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
                            const Rendezvous::Args& args,
                            DoneCallback done) override;
 
-  void UcxRecv(const Rendezvous::ParsedKey& parsed, ucp_worker_h ucp_worker,
-               const Rendezvous::Args& recv_args, Device* dst_dev,
-               DoneCallback done);
-
-  // Need to implement:
-  void UcxSend(ucp_worker_h ucp_worker, ucp_ep_h ep, uint64_t* msg,
-               size_t msg_len, ucp_tag_t tag);
-
   Status Send(const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& args,
               const Tensor& val, const bool is_dead) override;
 
  private:
-  static void RecvHandler(void* request, ucs_status_t status,
-                          ucp_tag_recv_info_t* info);
-
-  static void RecvMetaDataHandler(void* request, ucs_status_t status,
-                                  ucp_tag_recv_info_t* info);
-
-  static void SendHandle(void* request, ucs_status_t status);
-
-  void SendContent(const Tensor& val, size_t size);
-
   class UcxMetaData {
    public:
     UcxMetaData(bool is_dead, DataType dtype, TensorShape tensor_shape,
@@ -77,24 +59,31 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
     DataType dtype_;
     TensorShape tensor_shape_;
     size_t proto_size_;
+
+    std::ostream& print(std::ostream& out) const {
+      out << "Dtype = " << DataTypeString(dtype_)
+          << ", Shape = " << tensor_shape_.DebugString() << ", Proto size = 0x"
+          << std::hex << proto_size_ << ", Is dead = " << is_dead_;
+      return out;
+    }
   };
 
-  class UcxTensorRequest {
+  class UcxTensorRecv {
    public:
-    UcxTensorRequest(ucp_worker_h ucp_worker,
-                     const Rendezvous::ParsedKey& parsed,
-                     const Rendezvous::Args& recv_args, int64 step_id,
-                     Device* dst_dev, DoneCallback& done)
+    UcxTensorRecv(ucp_worker_h ucp_worker, const Rendezvous::ParsedKey& parsed,
+                  const Rendezvous::Args& recv_args, int64 step_id,
+                  Device* dst_dev, DoneCallback& done)
         : ucp_worker_(ucp_worker),
           parsed_(parsed),
           recv_args_(recv_args),
           step_id_(step_id),
           dst_dev_(dst_dev),
           done_(done),
+          data_size_(0),
           data_msg_(nullptr),
           meta_data_(nullptr),
           result_tensor_(nullptr) {}
-    ~UcxTensorRequest() {
+    ~UcxTensorRecv() {
       if (result_tensor_ != nullptr) {
         delete result_tensor_;
         result_tensor_ = nullptr;
@@ -105,16 +94,18 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
       }
     }
 
+    void Start();
     void RecvTensorMetaData();
     void RecvTensorContent();
-    void SetMetaData(UcxMetaData* meta_data) { meta_data_ = meta_data; }
-    void SetDataMsg(void* data_msg) { data_msg_ = data_msg; }
-    void SetResultTensor(Tensor* result_tensor) {
-      result_tensor_ = result_tensor;
-    }
-    char* GetMetaDataMsg() { return meta_data_msg_; }
 
    private:
+    static UcxTensorRecv* WaitForContext(void* request, ucs_status_t status,
+                                         ucp_tag_recv_info_t* info,
+                                         string func_name);
+    static void RecvTensorContentHandler(void* request, ucs_status_t status,
+                                         ucp_tag_recv_info_t* info);
+    static void RecvMetaDataHandler(void* request, ucs_status_t status,
+                                    ucp_tag_recv_info_t* info);
     void Done(const Status& s);
     ucp_worker_h ucp_worker_;
     Rendezvous::ParsedKey parsed_;
@@ -123,9 +114,49 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
     Device* dst_dev_;
     DoneCallback done_;
     char meta_data_msg_[UCX_RENDEZVOUS_MGR_META_DATA_SIZE];
+    size_t data_size_;
     void* data_msg_;
     UcxMetaData* meta_data_;
     Tensor* result_tensor_;
+  };
+
+  class UcxTensorSend {
+   public:
+    UcxTensorSend(ucp_ep_h ep, const Rendezvous::ParsedKey& parsed,
+                  const Rendezvous::Args& send_args, int64 step_id,
+                  const Tensor& val, bool is_dead)
+        : ep_(ep),
+          parsed_(parsed),
+          send_args_(send_args),
+          step_id_(step_id),
+          val_(val),
+          data_msg_(nullptr),
+          is_dead_(is_dead),
+          tensor_buffer_(nullptr),
+          is_meta_data_send_(false) {}
+
+    ~UcxTensorSend() {}
+
+    void Start();
+    void SendTensorMetaData();
+    void SendTensorContent();
+
+   private:
+    void SendDone();
+    static UcxTensorSend* WaitForContext(void* request, ucs_status_t status,
+                                         string func_name);
+    static void SendMetaDataHandler(void* request, ucs_status_t status);
+    static void SendTensorContentHandler(void* request, ucs_status_t status);
+    ucp_ep_h ep_;
+    Rendezvous::ParsedKey parsed_;
+    Rendezvous::Args send_args_;
+    int64 step_id_;
+    Tensor val_;
+    char meta_data_msg_[UCX_RENDEZVOUS_MGR_META_DATA_SIZE];
+    void* data_msg_;
+    bool is_dead_;
+    TensorBuffer* tensor_buffer_;
+    bool is_meta_data_send_;
   };
 
   ~UcxRemoteRendezvous() override {}

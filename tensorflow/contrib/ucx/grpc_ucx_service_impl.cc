@@ -30,7 +30,8 @@ namespace tensorflow {
 namespace grpc {
 
 static const char* grpcUcxService_method_names[] = {
-    "/tensorflow.UcxService/GetRemoteWorkerAddress", };
+    "/tensorflow.UcxService/GetRemoteWorkerAddress",
+};
 
 std::unique_ptr<UcxService::Stub> UcxService::NewStub(
     const std::shared_ptr< ::grpc::ChannelInterface>& channel,

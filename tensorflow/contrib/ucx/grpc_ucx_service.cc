@@ -96,8 +96,9 @@ void GrpcUcxService::HandleRPCsLoop() {
   }
 }
 
-void GrpcUcxService::GetRemoteWorkerAddressHandler(WorkerCall<
-    GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>* call) {
+void GrpcUcxService::GetRemoteWorkerAddressHandler(
+    WorkerCall<GetRemoteWorkerAddressRequest, GetRemoteWorkerAddressResponse>*
+        call) {
   Status s = GetRemoteWorkerAddressSync(&call->request, &call->response);
   call->SendResponse(ToGrpcStatus(s));
   ENQUEUE_REQUEST(GetRemoteWorkerAddress, false);
@@ -110,6 +111,7 @@ Status GrpcUcxService::GetRemoteWorkerAddressSync(
   // analyzing request
   // the channel setting part is redundant.
   const string remote_host_name = request->host_name();
+  VLOG(INFO) << __FUNCTION__ << " remote_host_name " << remote_host_name;
   UcxChannel* uc = ucx_mgr_->FindChannel(remote_host_name);
   CHECK(uc);
   UcxAddress ra(request->addr().worker_addr(),
