@@ -184,9 +184,12 @@ Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
   string dst_worker, dst_rel_device;
   DeviceNameUtils::SplitDeviceName(parsed.dst_device, &dst_worker,
                                    &dst_rel_device);
+  if (dst_worker.compare(ucx_mgr_->GetLocalWorkerName()) == 0) {
+    return BaseRemoteRendezvous::Send(parsed, args, val, is_dead);
+  }
   UcxChannel* uc = ucx_mgr_->FindChannel(dst_worker);
   UcxTensorSend* send_req =
-      new UcxTensorSend(uc->GetEp(), parsed, args, step_id_, val, is_dead);
+    new UcxTensorSend(uc->GetEp(), parsed, args, step_id_, val, is_dead);
 
   VLOG(1) << "UcxRemoteRendezvous Send " << this << " " << parsed.FullKey();
   send_req->Start();
