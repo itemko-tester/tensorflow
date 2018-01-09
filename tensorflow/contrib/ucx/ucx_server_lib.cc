@@ -82,6 +82,7 @@ Status UCXServer::ChannelCacheFactory(const ServerDef& server_def,
 Status UCXServer::Init(ServiceInitFunction service_func,
                        RendezvousMgrCreationFunction rendezvous_mgr_func) {
   Status s = GrpcServer::Init(service_func, rendezvous_mgr_func);
+  TF_CHECK_OK(s) << "GrpcServer::Init failed with status: " << s.ToString();
   {
     mutex_lock l(mu_);
     CHECK_EQ(ucx_state_, DISCONNECTED);
