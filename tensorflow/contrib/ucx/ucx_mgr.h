@@ -48,6 +48,7 @@ class UcxMgr {
   const ucp_worker_h& GetWorker() const { return ucp_worker_; }
   const string& LocalWorker() const { return local_worker_; }
   UcxAdapter* GetAdapter() { return ucx_adapter_; }
+  const string GetLocalWorkerName() const { return local_worker_; };
 
  private:
   string local_worker_;
