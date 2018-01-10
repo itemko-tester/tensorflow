@@ -82,7 +82,9 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
           data_size_(0),
           data_msg_(nullptr),
           meta_data_(nullptr),
-          result_tensor_(nullptr) {}
+          result_tensor_(nullptr) {
+      memset( meta_data_msg_, 0, UCX_RENDEZVOUS_MGR_META_DATA_SIZE);
+    }
     ~UcxTensorRecv() {
       if (result_tensor_ != nullptr) {
         delete result_tensor_;
