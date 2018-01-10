@@ -87,7 +87,6 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
 // Returns
 //   channel object that is connected to the named peer.
 UcxChannel* UcxMgr::FindChannel(const string& name) {
-  VLOG(INFO) << __FUNCTION__ << " name " << name;
   ChannelTable::iterator iter = channel_table_.find(name);
   CHECK(iter != channel_table_.end());
   return iter->second;
