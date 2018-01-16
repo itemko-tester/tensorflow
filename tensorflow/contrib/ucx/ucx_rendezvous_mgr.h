@@ -70,11 +70,16 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
 
   class UcxTensorRecv {
    public:
-    UcxTensorRecv(ucp_worker_h ucp_worker, const Rendezvous::ParsedKey& parsed,
+    struct ContextWrap{
+      UcxRemoteRendezvous::UcxTensorRecv* context;
+      size_t len;
+    };
+
+    UcxTensorRecv(ucp_worker_h ucp_worker, mutex mtx, const Rendezvous::ParsedKey& parsed,
                   const Rendezvous::Args& recv_args, int64 step_id,
                   Device* dst_dev, DoneCallback& done)
         : ucp_worker_(ucp_worker),
-          parsed_(parsed),
+          mtx_(mtx),
           recv_args_(recv_args),
           step_id_(step_id),
           dst_dev_(dst_dev),
@@ -84,6 +89,7 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
           meta_data_(nullptr),
           result_tensor_(nullptr) {
       memset( meta_data_msg_, 0, UCX_RENDEZVOUS_MGR_META_DATA_SIZE);
+      parsed_= parsed;
     }
     ~UcxTensorRecv() {
       if (result_tensor_ != nullptr) {
@@ -101,7 +107,7 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
     void RecvTensorContent();
 
    private:
-    static UcxTensorRecv* WaitForContext(void* request, ucs_status_t status,
+    static ContextWrap* WaitForContext(void* request, ucs_status_t status,
                                          ucp_tag_recv_info_t* info,
                                          string func_name);
     static void RecvTensorContentHandler(void* request, ucs_status_t status,
@@ -110,6 +116,7 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
                                     ucp_tag_recv_info_t* info);
     void Done(const Status& s);
     ucp_worker_h ucp_worker_;
+    mutex mtx_;
     Rendezvous::ParsedKey parsed_;
     Rendezvous::Args recv_args_;
     int64 step_id_;
@@ -128,14 +135,15 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
                   const Rendezvous::Args& send_args, int64 step_id,
                   const Tensor& val, bool is_dead)
         : ep_(ep),
-          parsed_(parsed),
           send_args_(send_args),
           step_id_(step_id),
           val_(val),
           data_msg_(nullptr),
           is_dead_(is_dead),
           tensor_buffer_(nullptr),
-          is_meta_data_send_(false) {}
+          is_meta_data_send_(false) {
+      parsed_= parsed;
+    }
 
     ~UcxTensorSend() {}
 

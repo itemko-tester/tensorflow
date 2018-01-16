@@ -78,7 +78,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
           {workers[i], new UcxChannel(ucx_addr_, ucp_worker_)});
     }
   }
-  ucx_adapter_ = new UcxAdapter(ucp_worker_);
+  ucx_adapter_ = new UcxAdapter(ucp_worker_, mtx_);
 }
 
 // Find a channel via the given name.
@@ -139,7 +139,9 @@ void UcxAdapter::UcxProgress() {
   progress_thread_.reset(Env::Default()->StartThread(
       ThreadOptions(), "UcxAdapterProgressThread", [this] {
         while (1) {
+          mtx_.lock();
           ucp_worker_progress(ucp_worker_);
+          mtx_.unlock();
         }
       }));
 }
