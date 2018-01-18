@@ -22,13 +22,12 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
 #include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/lib/core/status.h"
+#include <thread>
 
 namespace tensorflow {
 
-static void RequestInit(void* request) {
-  void** ctx = (void**)request;
-  *ctx = nullptr;
-}
+void RequestInit(void* request);
+extern size_t request_size;
 
 UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
                GrpcChannelCache* const channel_cache)
@@ -48,7 +47,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
                           UCP_PARAM_FIELD_REQUEST_SIZE |
                           UCP_PARAM_FIELD_REQUEST_INIT;
   ucp_params.features = UCP_FEATURE_TAG;
-  ucp_params.request_size = sizeof(void*);
+  ucp_params.request_size = request_size;
   ucp_params.request_init = RequestInit;
 
   status = ucp_init(&ucp_params, config, &ucp_context_);
@@ -78,7 +77,7 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
           {workers[i], new UcxChannel(ucx_addr_, ucp_worker_)});
     }
   }
-  ucx_adapter_ = new UcxAdapter(ucp_worker_, mtx_);
+  ucx_adapter_ = new UcxAdapter(ucp_worker_, GetMutex());
 }
 
 // Find a channel via the given name.
@@ -140,8 +139,9 @@ void UcxAdapter::UcxProgress() {
       ThreadOptions(), "UcxAdapterProgressThread", [this] {
         while (1) {
           mtx_.lock();
-          ucp_worker_progress(ucp_worker_);
+          while (ucp_worker_progress(ucp_worker_)){};
           mtx_.unlock();
+          std::this_thread::yield();
         }
       }));
 }
