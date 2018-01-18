@@ -28,11 +28,11 @@ limitations under the License.
 namespace tensorflow {
 class UcxAdapter {
  public:
-  UcxAdapter(const ucp_worker_h ucp_worker, mutex mtx) :
+  UcxAdapter(const ucp_worker_h ucp_worker, mutex& mtx) :
     ucp_worker_(ucp_worker), mtx_(mtx){}
   ~UcxAdapter();
   void UcxProgress();
-  mutex mtx_;
+  mutex &mtx_;
 
  private:
   const ucp_worker_h ucp_worker_;
@@ -50,7 +50,7 @@ class UcxMgr {
   const ucp_worker_h& GetWorker() const { return ucp_worker_; }
   const string& LocalWorker() const { return local_worker_; }
   UcxAdapter* GetAdapter() { return ucx_adapter_; }
-  mutex GetMutex() { return mtx_ ;}
+  mutex& GetMutex() { return mtx_ ;}
   const string GetLocalWorkerName() const { return local_worker_; };
 
  private:
