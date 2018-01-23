@@ -61,12 +61,11 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
 
   class UcxTensorRecv {
    public:
-    UcxTensorRecv(ucp_worker_h ucp_worker, mutex& mtx, const Rendezvous::ParsedKey& parsed,
+    UcxTensorRecv(ucp_worker_h ucp_worker, const Rendezvous::ParsedKey& parsed,
                   const Rendezvous::Args& recv_args, int64 step_id,
                   Device* dst_dev, DoneCallback& done)
         : ucp_worker_(ucp_worker),
           key_((parsed.FullKey().ToString())),
-          mtx_(mtx),
           recv_args_(recv_args),
           step_id_(step_id),
           dst_dev_(dst_dev),
@@ -75,7 +74,7 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
           data_msg_(nullptr),
           meta_data_(nullptr),
           result_tensor_(nullptr) {
-      memset( meta_data_msg_, 0, UCX_RENDEZVOUS_MGR_META_DATA_SIZE);
+      memset(meta_data_msg_, 0, UCX_RENDEZVOUS_MGR_META_DATA_SIZE);
     }
     ~UcxTensorRecv() {
       if (result_tensor_ != nullptr) {
@@ -88,19 +87,18 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
       }
     }
 
-    void Start();
+    void Start(mutex& mtx);
     void RecvTensorMetaData();
     void RecvTensorContent();
 
-    struct ContextWrap{
-       UcxRemoteRendezvous::UcxTensorRecv* context;
-       size_t len;
-     };
+    struct ContextWrap {
+      UcxRemoteRendezvous::UcxTensorRecv* context;
+      size_t len;
+    };
 
    private:
     static void WaitForContext(void* request, ucs_status_t status,
-                               ucp_tag_recv_info_t* info,
-                               string func_name,
+                               ucp_tag_recv_info_t* info, string func_name,
                                ContextWrap* ctx);
     static void RecvTensorContentHandler(void* request, ucs_status_t status,
                                          ucp_tag_recv_info_t* info);
@@ -109,7 +107,6 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
     void Done(const Status& s);
     ucp_worker_h ucp_worker_;
     string key_;
-    mutex& mtx_;
     Rendezvous::Args recv_args_;
     int64 step_id_;
     Device* dst_dev_;
@@ -147,9 +144,9 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
 
     ~UcxTensorSend() {}
 
-    void Start();
-    void SendTensorMetaData();
-    void SendTensorContent();
+    void Start(mutex& mtx);
+    void SendTensorMetaData(mutex& mtx);
+    void SendTensorContent(mutex& mtx);
 
    private:
     void SendDone();
@@ -176,7 +173,6 @@ class UcxRemoteRendezvous : public BaseRemoteRendezvous {
 
   TF_DISALLOW_COPY_AND_ASSIGN(UcxRemoteRendezvous);
 };
-
 
 class UcxRendezvousMgr : public BaseRendezvousMgr {
  public:

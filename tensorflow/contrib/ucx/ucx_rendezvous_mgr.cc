@@ -34,9 +34,7 @@ limitations under the License.
 namespace tensorflow {
 
 size_t request_size = sizeof(UcxRemoteRendezvous::UcxTensorRecv::ContextWrap);
-void RequestInit(void* request) {
-  memset(request, 0, request_size);
-}
+void RequestInit(void* request) { memset(request, 0, request_size); }
 
 void UcxRemoteRendezvous::RecvFromRemoteAsync(
     const Rendezvous::ParsedKey& parsed, const Rendezvous::Args& args,
@@ -45,18 +43,17 @@ void UcxRemoteRendezvous::RecvFromRemoteAsync(
   Device* dst_dev;
   string src_worker, src_rel_device;
   DeviceNameUtils::SplitDeviceName(parsed.src_device, &src_worker,
-                                     &src_rel_device);
+                                   &src_rel_device);
   ucp_worker_h ucp_worker = ucx_mgr_->GetWorker();
   s = env_->device_mgr->LookupDevice(parsed.dst_device, &dst_dev);
   if (!s.ok()) {
     done(s, Args(), args, Tensor(), true);
-    VLOG(INFO) << "Return from "<< __FUNCTION__ << " with status " << s.ToString();
     return;
   }
   VLOG(INFO) << __FUNCTION__ << " key: " << (parsed.FullKey().ToString());
   UcxTensorRecv* context =
-      new UcxTensorRecv(ucp_worker, ucx_mgr_->GetMutex(), parsed, args, step_id_, dst_dev, done);
-  context->Start();
+      new UcxTensorRecv(ucp_worker, parsed, args, step_id_, dst_dev, done);
+  context->Start(ucx_mgr_->GetMutex());
 }
 
 void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
@@ -64,7 +61,7 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
   int recv_data_size = 0;
   UcxTensorMetaData tensor_proto;
   char buf[128];
-  char *out = buf;
+  char* out = buf;
   for (int i = 0; i < data_size_; ++i) {
     out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
   }
@@ -94,11 +91,9 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
     CHECK(data_msg_ != nullptr) << ": allocate memory failed";
     recv_data_size = meta_data_->proto_size_;
   }
-  VLOG(INFO) << __FUNCTION__ << " tag [0x " << std::hex << tag << "]" ;
-  request = ucp_tag_recv_nb(
-      ucp_worker_, data_msg_, recv_data_size, ucp_dt_make_contig(1), tag, -1,
-      &RecvTensorContentHandler);
-  VLOG(INFO) << __FUNCTION__ << " after ucp_tag_recv_nb tag [0x " << std::hex << tag << "]" ;
+  request = ucp_tag_recv_nb(ucp_worker_, data_msg_, recv_data_size,
+                            ucp_dt_make_contig(1), tag, -1,
+                            &RecvTensorContentHandler);
   if (UCS_PTR_IS_ERR(request)) {
     VLOG(ERROR) << "unable to receive UCX data message"
                 << UCS_PTR_STATUS(request);
@@ -106,15 +101,12 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
       free(data_msg_);
     }
     delete this;
-  } else if (ucp_request_check_status(request) != UCS_INPROGRESS){
-    LOG(INFO) << "[" << this << "] calling RecvTensorContent";
-    std::cout  << std::flush;
-      std::cerr  << std::flush;
+  } else if (ucp_request_check_status(request) != UCS_INPROGRESS) {
     RecvTensorContent();
   } else {
-    VLOG(INFO) << "[0x" << std::hex << pthread_self() << "] In progress, recv content: tag [0x " << std::hex << tag << "]" ;
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
+    VLOG(INFO) << "[0x" << std::hex << pthread_self()
+               << "] In progress, recv content: tag [0x " << std::hex << tag
+               << "]";
     ((ContextWrap*)request)->context = this;
   }
 }
@@ -149,27 +141,20 @@ void UcxRemoteRendezvous::UcxTensorRecv::Done(const Status& s) {
 }
 
 /* static */
-void UcxRemoteRendezvous::UcxTensorRecv::WaitForContext(void* request,
-                                                        ucs_status_t status,
-                                                        ucp_tag_recv_info_t* info,
-                                                        string func_name,
-                                                        ContextWrap* ctx) {
+void UcxRemoteRendezvous::UcxTensorRecv::WaitForContext(
+    void* request, ucs_status_t status, ucp_tag_recv_info_t* info,
+    string func_name, ContextWrap* ctx) {
   *ctx = *(ContextWrap*)request;
   if (ctx->context == nullptr) {
     VLOG(INFO) << " Handler called from ucp_tag_recv_nb ";
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
     ((ContextWrap*)request)->len = info->length;
     return;
   }
   VLOG(INFO) << " Handler called from progress state, request is " << request;
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
-  VLOG(INFO) << " key " << ((ContextWrap*)request)->context->key_;
   ctx->context->data_size_ = info->length;
-  LOG(INFO) << "key " << ctx->context->key_ << " Request " << request << " Free";
-  ucp_request_free(request);
+  // Init request before free, ucp_request_free doesn't initialize the request
   RequestInit(request);
+  ucp_request_free(request);
 }
 
 /* static */
@@ -187,70 +172,38 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorContentHandler(
 void UcxRemoteRendezvous::UcxTensorRecv::RecvMetaDataHandler(
     void* request, ucs_status_t status, ucp_tag_recv_info_t* info) {
   ContextWrap ctx;
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
   WaitForContext(request, status, info, "RecvMetaDataHandler", &ctx);
   if (ctx.context == nullptr) {
     return;
   }
-  LOG(INFO) << " key " << ctx.context->key_<< "RecvMetaDataHandler got request " << request;
   ctx.context->RecvTensorMetaData();
 }
 
-void UcxRemoteRendezvous::UcxTensorRecv::Start() {
+void UcxRemoteRendezvous::UcxTensorRecv::Start(mutex& mtx) {
   void* request;
-  LOG(INFO) << "[" << this << "] Starting TensorRecv: key: " << key_ << " step id " << step_id_;
   ucp_tag_t tag =
       UcxUtil::CalcTag(key_, step_id_, UCX_RENDEZVOUS_MGR_META_DATA_FLAG);
 
   // Receive MetaData message
-  VLOG(INFO) << __FUNCTION__ << " tag [0x " << std::hex << tag << "]";
-  VLOG(INFO) << "lock";
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
-  mtx_.lock();
-  VLOG(INFO) << __FUNCTION__ << " key " << key_;
+  mtx.lock();
   request = ucp_tag_recv_nb(
       ucp_worker_, meta_data_msg_, UCX_RENDEZVOUS_MGR_META_DATA_SIZE,
       ucp_dt_make_contig(1), tag, -1, RecvMetaDataHandler);
-  LOG(INFO) << "[" << this << "]" << " key " << key_ << " after ucp_tag_recv_nb, request " << request;
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
+
   if (UCS_PTR_IS_ERR(request)) {
-    mtx_.unlock();
-    VLOG(INFO) << "unlock";
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
+    mtx.unlock();
     LOG(FATAL) << "unable to receive UCX meta data message"
-                << UCS_PTR_STATUS(request);
+               << UCS_PTR_STATUS(request);
     delete this;
-  }
-  else if (ucp_request_check_status(request) != UCS_INPROGRESS){
+  } else if (ucp_request_check_status(request) != UCS_INPROGRESS) {
     data_size_ = ((ContextWrap*)request)->len;
-    LOG(INFO) << "[" << this << "]" << " key " << key_<< " ucp_tag_recv_nb finished, update data_size " << data_size_;
-    LOG(INFO) << "[" << this << "] calling RecvTensorMetaData";
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
 
     RecvTensorMetaData();
-    mtx_.unlock();
-    VLOG(INFO) << "unlock";
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
-  }
-  else {
-    LOG(INFO) << "[" << this << "]"<< " key " << key_ << " Setting request " << request << ": Context = " << this;
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
+    mtx.unlock();
+  } else {
     ((ContextWrap*)request)->context = this;
-    mtx_.unlock();
-    VLOG(INFO) << "unlock";
-    std::cout  << std::flush;
-    std::cerr  << std::flush;
+    mtx.unlock();
   }
-  LOG(INFO) << "[" << this << "]" << " key " << key_ << " Recv end of start ";
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -267,8 +220,8 @@ Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
   UcxChannel* uc = ucx_mgr_->FindChannel(dst_worker);
   VLOG(INFO) << __FUNCTION__ << " key: " << (parsed.FullKey().ToString());
   UcxTensorSend* send_req =
-    new UcxTensorSend(uc->GetEp(), parsed, args, step_id_, val, is_dead);
-  send_req->Start();
+      new UcxTensorSend(uc->GetEp(), parsed, args, step_id_, val, is_dead);
+  send_req->Start(ucx_mgr_->GetMutex());
   return Status::OK();
 }
 
@@ -286,7 +239,8 @@ void UcxRemoteRendezvous::UcxTensorSend::SendDone() {
     free(data_msg_);
   }
   delete this;
-  VLOG(INFO) << " SendDone ";
+  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]"
+             << " SendDone ";
 }
 
 UcxRemoteRendezvous::UcxTensorSend*
@@ -298,11 +252,8 @@ UcxRemoteRendezvous::UcxTensorSend::WaitForContext(void* request,
   while (context == nullptr) {
     context = *(UcxTensorSend**)request;
   }
-  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << func_name
-             << " called with status " << status << " " << ucs_status_string(status);
-  ucp_request_free(request);
   *(void**)request = nullptr;
-  LOG(INFO) << "context " << context;
+  ucp_request_free(request);
   return context;
 }
 
@@ -319,7 +270,7 @@ void UcxRemoteRendezvous::UcxTensorSend::SendMetaDataHandler(
   LOG(INFO) << "Send meta-data done ";
 }
 
-void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent() {
+void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent(mutex& mtx) {
   TensorProto tensor_proto;
   void* request = 0;
   size_t msg_size = 0;
@@ -346,11 +297,13 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent() {
     send_args_.device_context->Ref();
   }
   // Send Tensor content
-  VLOG(INFO) << __FUNCTION__ << " tag [0x " << std::hex << tag << "] msg_size: " << msg_size ;
-  CHECK(ep_!=nullptr) << "ep is null";
-  VLOG(INFO) << __FUNCTION__ << " after ep "; ;
+  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << __FUNCTION__
+             << " tag [0x " << std::hex << tag << "] msg_size: " << msg_size;
+  CHECK(ep_ != nullptr) << "ep is null";
+  mtx.lock();
   request = ucp_tag_send_nb(ep_, data_msg_, msg_size, ucp_dt_make_contig(1),
                             tag, SendTensorContentHandler);
+  mtx.unlock();
   if (UCS_PTR_IS_ERR(request)) {
     VLOG(ERROR) << "unable to send UCX meta data message"
                 << UCS_PTR_STATUS(request);
@@ -365,21 +318,15 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent() {
     LOG(INFO) << "Send content in progress: " << key_;
     *(UcxTensorSend**)request = this;
   }
-
 }
 
-void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData() {
-  VLOG(INFO) << __FUNCTION__;
+void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData(mutex& mtx) {
   void* request;
   size_t proto_size = 0;
   UcxTensorMetaData meta_data_proto;
   TensorProto proto;
-  VLOG(INFO) << __FUNCTION__;
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
   ucp_tag_t tag =
       UcxUtil::CalcTag(key_, step_id_, UCX_RENDEZVOUS_MGR_META_DATA_FLAG);
-  VLOG(INFO) << __FUNCTION__;
   bool can_memcpy = DataTypeCanUseMemcpy(val_.dtype());
 
   if (can_memcpy) {
@@ -396,24 +343,23 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData() {
 
   // Send MetaData message:
   char buf[128];
-  char *out = buf;
+  char* out = buf;
   for (int i = 0; i < meta_data_proto.ByteSize(); ++i) {
     out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
   }
-  LOG(INFO) << "Send meta-data " << key_ << ": " << buf;
   CHECK(ep_ != nullptr) << "EP is NULL";
-  VLOG(INFO) << __FUNCTION__ << " tag [0x " << std::hex << tag << "] msg size " << meta_data_proto.ByteSize() ;
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
+  VLOG(INFO) << __FUNCTION__ << " tag [0x " << std::hex << tag << "] msg size "
+             << meta_data_proto.ByteSize();
+  LOG(INFO) << "key: " << key_ << " data: " << buf;
+  mtx.lock();
   request = ucp_tag_send_nb(ep_, meta_data_msg_, meta_data_proto.ByteSize(),
                             ucp_dt_make_contig(1), tag, SendMetaDataHandler);
-  std::cout  << std::flush;
-  std::cerr  << std::flush;
+  mtx.unlock();
   if (UCS_PTR_IS_ERR(request)) {
     VLOG(ERROR) << "unable to send UCX meta data message"
                 << UCS_PTR_STATUS(request);
-    ucp_request_free(request);
     *(void**)request = nullptr;
+    ucp_request_free(request);
     delete this;
   } else if (UCS_PTR_STATUS(request) == UCS_OK) {
     is_meta_data_send_ = true;
@@ -423,11 +369,11 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData() {
   }
 }
 
-void UcxRemoteRendezvous::UcxTensorSend::Start() {
+void UcxRemoteRendezvous::UcxTensorSend::Start(mutex& mtx) {
   // Send MetaData and Tensor content one after the other in two separate
   // messages.
-  SendTensorMetaData();
-  SendTensorContent();
+  SendTensorMetaData(mtx);
+  SendTensorContent(mtx);
 }
 
 UcxRendezvousMgr::UcxRendezvousMgr(const WorkerEnv* env)

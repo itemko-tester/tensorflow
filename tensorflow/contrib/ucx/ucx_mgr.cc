@@ -16,13 +16,13 @@ limitations under the License.
 #ifndef TENSORFLOW_USE_UCX
 
 #include "tensorflow/contrib/ucx/ucx_mgr.h"
+#include <thread>
 #include <vector>
 #include "tensorflow/contrib/ucx/grpc_ucx_client.h"
 #include "tensorflow/contrib/ucx/ucx_service.pb.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
 #include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/lib/core/status.h"
-#include <thread>
 
 namespace tensorflow {
 
@@ -43,22 +43,22 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
   status = ucp_config_read(NULL, NULL, &config);
   CHECK(status == UCS_OK) << "ucp_config_read failed with status: " << status;
 
-  ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES |
-                          UCP_PARAM_FIELD_REQUEST_SIZE |
-                          UCP_PARAM_FIELD_REQUEST_INIT;
+  ucp_params.field_mask =
+      UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_REQUEST_SIZE |
+      UCP_PARAM_FIELD_REQUEST_INIT | UCP_PARAM_FIELD_MT_WORKERS_SHARED;
   ucp_params.features = UCP_FEATURE_TAG;
   ucp_params.request_size = request_size;
   ucp_params.request_init = RequestInit;
+  ucp_params.mt_workers_shared = 1;
 
   status = ucp_init(&ucp_params, config, &ucp_context_);
   CHECK(status == UCS_OK) << "ucp_init failed with status: " << status;
   ucp_config_print(config, stdout, NULL, UCS_CONFIG_PRINT_CONFIG);
-
   ucp_config_release(config);
 
   memset(&worker_params, 0, sizeof(worker_params));
   worker_params.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
-  worker_params.thread_mode = UCS_THREAD_MODE_SINGLE;
+  worker_params.thread_mode = UCS_THREAD_MODE_MULTI;
 
   status = ucp_worker_create(ucp_context_, &worker_params, &ucp_worker_);
   CHECK(status == UCS_OK) << "worker_create failed";
@@ -139,7 +139,8 @@ void UcxAdapter::UcxProgress() {
       ThreadOptions(), "UcxAdapterProgressThread", [this] {
         while (1) {
           mtx_.lock();
-          while (ucp_worker_progress(ucp_worker_)){};
+          while (ucp_worker_progress(ucp_worker_)) {
+          };
           mtx_.unlock();
           std::this_thread::yield();
         }

@@ -36,14 +36,14 @@ void UcxChannel::Connect() {
   Connect(remote_addr_);
 }
 
-void failure_handler(void *arg, ucp_ep_h ep, ucs_status_t status)
-{
-    ucs_status_t *arg_status = (ucs_status_t *)arg;
+void failure_handler(void* arg, ucp_ep_h ep, ucs_status_t status) {
+  ucs_status_t* arg_status = (ucs_status_t*)arg;
 
-    VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << __FUNCTION__ <<
-        "failure handler called with status " << status << " " << ucs_status_string(status);
+  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << __FUNCTION__
+             << "failure handler called with status " << status << " "
+             << ucs_status_string(status);
 
-    *arg_status = status;
+  *arg_status = status;
 }
 
 void UcxChannel::Connect(const UcxAddress& remoteAddr) {
@@ -59,7 +59,7 @@ void UcxChannel::Connect(const UcxAddress& remoteAddr) {
   status = ucp_ep_create(ucp_worker_, &ep_params, &ep_);
   CHECK(status == UCS_OK) << "EP creation failed!!! status: " << status << "("
                           << ucs_status_string(status) << ")";
-  CHECK(ep_!= nullptr) << "EP is NULL";
+  CHECK(ep_ != nullptr) << "EP is NULL";
   LOG(INFO) << "UCX channel connected!";
 }
 }
