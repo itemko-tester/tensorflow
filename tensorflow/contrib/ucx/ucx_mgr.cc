@@ -24,6 +24,30 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/lib/core/status.h"
 
+#include <execinfo.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void print_trace(void) {
+  void* array[10];
+  size_t size;
+  char** strings;
+  size_t i;
+
+  size = backtrace(array, 10);
+  strings = backtrace_symbols(array, size);
+  printf("Obtained %zd stack frames.\n", size);
+  for (i = 0; i < size; i++) printf("%s\n", strings[i]);
+  free(strings);
+}
+
+void my_handler(int param) {
+  LOG(INFO) << "GOT SIGNAL " << param << " ON 0x" << std::hex << pthread_self();
+  print_trace();
+  signal(param, nullptr);
+  raise(param);
+}
+
 namespace tensorflow {
 
 void RequestInit(void* request);
@@ -78,6 +102,11 @@ UcxMgr::UcxMgr(const WorkerEnv* const worker_env,
     }
   }
   ucx_adapter_ = new UcxAdapter(ucp_worker_, GetMutex());
+
+  signal(SIGINT, my_handler);
+  signal(SIGSEGV, my_handler);
+  signal(SIGTERM, my_handler);
+  signal(SIGABRT, my_handler);
 }
 
 // Find a channel via the given name.
