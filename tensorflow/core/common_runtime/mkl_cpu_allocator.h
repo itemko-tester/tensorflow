@@ -119,6 +119,8 @@ class MklCPUAllocator : public Allocator {
 
   void ClearStats() override { allocator_->ClearStats(); }
 
+  Allocator* GetAllocator() { return allocator_; }
+
  private:
   // Hooks provided by this allocator for memory allocation routines from MKL
 

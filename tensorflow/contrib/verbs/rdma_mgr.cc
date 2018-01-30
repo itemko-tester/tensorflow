@@ -307,10 +307,10 @@ void RdmaMgr::InitAllocators() {
 
     VisitableAllocator* visitable_allocator;
 #ifdef INTEL_MKL
-    MKLCPUAllocator* mkl_allocator = dynamic_cast<MKLCPUAllocator*>(allocator);
+    MklCPUAllocator* mkl_allocator = dynamic_cast<MklCPUAllocator*>(allocator);
     if (mkl_allocator){
       visitable_allocator = dynamic_cast<VisitableAllocator*>
-					(mkl_allocator->_allocator); //private?
+					(mkl_allocator->GetAllocator()); 
     } 
     else
 #endif
