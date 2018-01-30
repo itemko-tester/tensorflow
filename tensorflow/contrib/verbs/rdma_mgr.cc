@@ -28,6 +28,11 @@ limitations under the License.
 #include "tensorflow/core/framework/allocator_registry.h"
 #include "tensorflow/core/lib/core/status.h"
 
+
+
+#ifdef INTEL_MKL
+#include "tensorflow/core/common_runtime/mkl_cpu_allocator.h"
+#endif
 namespace tensorflow {
 
 RdmaMgr::RdmaMgr(const WorkerEnv* const worker_env,
@@ -300,7 +305,18 @@ void RdmaMgr::InitAllocators() {
     VisitableAllocator::Visitor free_visitor = std::bind(
         &RdmaMemoryMgr::EvictMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
 
-    auto* visitable_allocator = dynamic_cast<VisitableAllocator*>(allocator);
+    VisitableAllocator* visitable_allocator;
+#ifdef INTEL_MKL
+    MKLCPUAllocator* mkl_allocator = dynamic_cast<MKLCPUAllocator*>(allocator);
+    if (mkl_allocator){
+      visitable_allocator = dynamic_cast<VisitableAllocator*>
+					(mkl_allocator->_allocator); //private?
+    } 
+    else
+#endif
+    { 
+      visitable_allocator = dynamic_cast<VisitableAllocator*>(allocator);
+    }
     CHECK(visitable_allocator)
         << "is not visitable for instrumentation" << allocator->Name();
     // Make sure we don't instrument the same allocator twice
