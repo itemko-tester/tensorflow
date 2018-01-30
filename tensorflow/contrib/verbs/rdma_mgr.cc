@@ -23,6 +23,9 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/bfc_allocator.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_util.h"
 #include "tensorflow/core/common_runtime/gpu/process_state.h"
+#ifdef INTEL_MKL
+#include "tensorflow/core/common_runtime/mkl_cpu_allocator.h"
+#endif
 #include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
 #include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/framework/allocator_registry.h"
@@ -300,9 +303,19 @@ void RdmaMgr::InitAllocators() {
     VisitableAllocator::Visitor free_visitor = std::bind(
         &RdmaMemoryMgr::EvictMemoryRegion, &RdmaMemoryMgr::Singleton(), _1, _2);
 
-    auto* visitable_allocator = dynamic_cast<VisitableAllocator*>(allocator);
+    VisitableAllocator* visitable_allocator;
+#ifdef INTEL_MKL
+    MklCPUAllocator* mkl_allocator = dynamic_cast<MklCPUAllocator*>(allocator);
+    if (mkl_allocator) {
+      visitable_allocator =
+          dynamic_cast<VisitableAllocator*>(mkl_allocator->GetAllocator());
+    } else
+#endif
+    {
+      visitable_allocator = dynamic_cast<VisitableAllocator*>(allocator);
+    }
     CHECK(visitable_allocator)
-        << "is not visitable for instrumentation" << allocator->Name();
+        << "is not visitable for instrumentation " << allocator->Name();
     // Make sure we don't instrument the same allocator twice
     if (instrumented_.find(allocator) == std::end(instrumented_)) {
       visitable_allocator->AddAllocVisitor(alloc_visitor);
