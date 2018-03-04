@@ -54,7 +54,7 @@ void UcxChannel::Connect(const UcxAddress& remoteAddr) {
       UCP_EP_PARAM_FIELD_REMOTE_ADDRESS | UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
   ep_params.address = remoteAddr.get_addr();
   ep_params.err_mode = UCP_ERR_HANDLING_MODE_PEER;
-  ep_params.err_handler_cb = failure_handler;
+  ep_params.err_handler.cb = failure_handler;
 
   status = ucp_ep_create(ucp_worker_, &ep_params, &ep_);
   CHECK(status == UCS_OK) << "EP creation failed!!! status: " << status << "("
