@@ -65,7 +65,7 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
   for (int i = 0; i < data_size_; ++i) {
     out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
   }
-  LOG(INFO) << "[" << this << "] Got meta-data: " << key_ << ": buf " << buf;
+//  LOG(INFO) << "[" << this << "] Got meta-data: " << key_ << ": buf " << buf;
   CHECK(ParseProtoUnlimited(&tensor_proto, meta_data_msg_, data_size_))
       << "fail to parse proto from array. Data size " << data_size_;
   meta_data_ = new UcxMetaData(tensor_proto);
@@ -110,7 +110,7 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
 
 void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorContent() {
   bool can_memcpy = DataTypeCanUseMemcpy(meta_data_->dtype_);
-  LOG(INFO) << "[" << this << "] Got tensor content: key: " << key_ ;
+//  LOG(INFO) << "[" << this << "] Got tensor content: key: " << key_ ;
   // String
   if (can_memcpy) {
     // TODO: CPU to GPU copy --> in the future
@@ -134,8 +134,8 @@ void UcxRemoteRendezvous::UcxTensorRecv::Done(const Status& s) {
   // Should be called last:
   delete this;
   done(s, Rendezvous::Args(), recv_args, val, is_dead);
-  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]"
-             << " RecvDone ";
+//  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]"
+//             << " RecvDone ";
 }
 
 /* static */
@@ -240,8 +240,8 @@ void UcxRemoteRendezvous::UcxTensorSend::SendDone() {
     free(data_msg_);
   }
   delete this;
-  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]"
-             << " SendDone ";
+//  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]"
+//             << " SendDone ";
 }
 
 UcxRemoteRendezvous::UcxTensorSend*
@@ -295,8 +295,8 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent(mutex& mtx) {
     send_args_.device_context->Ref();
   }
   // Send Tensor content
-  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << __FUNCTION__
-             << " tag [0x " << std::hex << tag << "] msg_size: " << msg_size;
+//  VLOG(INFO) << "[0x" << std::hex << pthread_self() << "]" << __FUNCTION__
+//             << " tag [0x " << std::hex << tag << "] msg_size: " << msg_size;
   CHECK(ep_ != nullptr) << "ep is null";
   mtx.lock();
   request = ucp_tag_send_nb(ep_, data_msg_, msg_size, ucp_dt_make_contig(1),
@@ -346,8 +346,8 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData(mutex& mtx) {
     out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
   }
   CHECK(ep_ != nullptr) << "EP is NULL";
-  VLOG(INFO) << std::hex << __FUNCTION__ << " tag [0x " << tag << "] msg size"
-             << meta_data_proto.ByteSize() << "\nkey: " << key_ << " data: " << buf;
+//  VLOG(INFO) << std::hex << __FUNCTION__ << " tag [0x " << tag << "] msg size"
+//             << meta_data_proto.ByteSize() << "\nkey: " << key_ << " data: " << buf;
   mtx.lock();
   request = ucp_tag_send_nb(ep_, meta_data_msg_, meta_data_proto.ByteSize(),
                             ucp_dt_make_contig(1), tag, SendMetaDataHandler);
