@@ -216,7 +216,7 @@ Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
     while ((uc->GetEp() == nullptr) && (count < 5)) {
       count++;
       LOG(INFO) << "Channel is not yet connected. Retrying "<< count << "/5";
-      usleep(20000);
+      usleep(2000000);
     }
   }
 
