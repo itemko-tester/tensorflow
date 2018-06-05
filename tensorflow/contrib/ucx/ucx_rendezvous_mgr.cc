@@ -42,9 +42,9 @@ void UcxRemoteRendezvous::RecvFromRemoteAsync(
     DoneCallback done) {
   Status s;
   Device* dst_dev;
-  string src_worker, src_rel_device;
-  DeviceNameUtils::SplitDeviceName(parsed.src_device, &src_worker,
-                                   &src_rel_device);
+//  string src_worker, src_rel_device;
+//  DeviceNameUtils::SplitDeviceName(parsed.src_device, &src_worker,
+//                                   &src_rel_device);
   ucp_worker_h ucp_worker = ucx_mgr_->GetWorker();
   s = env_->device_mgr->LookupDevice(parsed.dst_device, &dst_dev);
   if (!s.ok()) {
@@ -60,11 +60,11 @@ void UcxRemoteRendezvous::UcxTensorRecv::RecvTensorMetaData() {
   void* request = nullptr;
   int recv_data_size = 0;
   UcxTensorMetaData tensor_proto;
-  char buf[128];
-  char* out = buf;
-  for (int i = 0; i < data_size_; ++i) {
-    out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
-  }
+//  char buf[128];
+//  char* out = buf;
+//  for (int i = 0; i < data_size_; ++i) {
+//    out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
+//  }
 //  LOG(INFO) << "[" << this << "] Got meta-data: " << key_ << ": buf " << buf;
   CHECK(ParseProtoUnlimited(&tensor_proto, meta_data_msg_, data_size_))
       << "fail to parse proto from array. Data size " << data_size_;
@@ -216,7 +216,7 @@ Status UcxRemoteRendezvous::Send(const Rendezvous::ParsedKey& parsed,
     while ((uc->GetEp() == nullptr) && (count < 5)) {
       count++;
       LOG(INFO) << "Channel is not yet connected. Retrying "<< count << "/5";
-      usleep(20000);
+      usleep(2000000);
     }
   }
 
@@ -319,6 +319,8 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorContent(mutex& mtx) {
 }
 
 void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData(mutex& mtx) {
+  CHECK(ep_ != nullptr) << "EP is NULL";
+
   void* request;
   size_t proto_size = 0;
   UcxTensorMetaData meta_data_proto;
@@ -340,12 +342,11 @@ void UcxRemoteRendezvous::UcxTensorSend::SendTensorMetaData(mutex& mtx) {
   meta_data_proto.SerializeToArray(meta_data_msg_, meta_data_proto.ByteSize());
 
   // Send MetaData message:
-  char buf[128];
-  char* out = buf;
-  for (int i = 0; i < meta_data_proto.ByteSize(); ++i) {
-    out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
-  }
-  CHECK(ep_ != nullptr) << "EP is NULL";
+//  char buf[128];
+//  char* out = buf;
+//  for (int i = 0; i < meta_data_proto.ByteSize(); ++i) {
+//    out += sprintf(out, "0x%02x ", (unsigned int)meta_data_msg_[i]);
+//  }
 //  VLOG(INFO) << std::hex << __FUNCTION__ << " tag [0x " << tag << "] msg size"
 //             << meta_data_proto.ByteSize() << "\nkey: " << key_ << " data: " << buf;
   mtx.lock();
